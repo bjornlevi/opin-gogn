@@ -26,16 +26,19 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
     """
     con = duckdb.connect(":memory:")
 
-    # Read data
-    con.execute(f"CREATE TABLE data AS SELECT * FROM read_parquet('{input_file}')")
+    # Read data using absolute path
+    input_path = str(input_file.resolve())
+    output_path = str(output_file.resolve())
 
-    # Create a view with window functions to detect potential corrections
+    con.execute(f"CREATE TABLE data_raw AS SELECT * FROM read_parquet('{input_path}')")
+
+    # Add is_correction column
     con.execute("""
-    CREATE TABLE data_with_flags AS
+    CREATE TABLE data AS
     SELECT
         *,
-        FALSE AS is_correction
-    FROM data
+        CAST(FALSE AS BOOLEAN) AS is_correction
+    FROM data_raw
     """)
 
     # Find correction pairs: same buyer/vendor/type, opposite signs, similar amounts
@@ -73,18 +76,16 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
 
     if correction_ids:
         # Mark corrections
-        id_list = ','.join(f"'{id}'" for id in correction_ids)
+        id_list = ','.join([f"'{id}'" for id in correction_ids])
         con.execute(f"""
-        UPDATE data_with_flags
+        UPDATE data
         SET is_correction = TRUE
         WHERE "Númer reiknings" IN ({id_list})
         """)
 
-    # Export to parquet
-    con.execute(f"""
-    COPY data_with_flags
-    TO '{output_file}' (FORMAT PARQUET)
-    """)
+    # Export using DuckDB's native parquet write
+    con.execute(f'CREATE TABLE export_data AS SELECT * FROM data')
+    con.execute(f'COPY export_data TO "{output_path}" (FORMAT PARQUET)')
 
     print(f"Saved to {output_file}")
 
