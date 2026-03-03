@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% set page_id = "anomalies" %}
+{% block title %}Anomalies — {% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}</div>
+  <h1>Anomalies</h1>
+  <p>Óvenjulegar breytingar milli ára — fundnar með tölfræðilegum aðferðum</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <form method="get">
+
+        <div class="ctrl-group">
+          <label class="ctrl-label">Flokka eftir</label>
+          <select name="group_col" onchange="this.form.submit()">
+            {% for opt in group_options %}
+              <option value="{{ opt }}" {% if group_col == opt %}selected{% endif %}>{{ dn(opt) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="ctrl-group">
+          <label class="ctrl-label">Ár</label>
+          <select name="year" onchange="this.form.submit()">
+            <option value="all" {% if year == 'all' %}selected{% endif %}>Öll ár</option>
+            {% for y in years %}
+              <option value="{{ y }}" {% if year | string == y | string %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="section-title" style="margin-top:4px">Stefna</div>
+        <div class="pill-grid" style="margin-bottom:12px">
+          <a class="pill {% if direction == 'all' %}active{% endif %}"
+             href="?group_col={{ group_col }}&year={{ year }}&direction=all&min_change={{ min_change }}&limit={{ limit }}">Allt</a>
+          <a class="pill {% if direction == 'up' %}active{% endif %}"
+             href="?group_col={{ group_col }}&year={{ year }}&direction=up&min_change={{ min_change }}&limit={{ limit }}">↑ Hækkun</a>
+          <a class="pill {% if direction == 'down' %}active{% endif %}"
+             href="?group_col={{ group_col }}&year={{ year }}&direction=down&min_change={{ min_change }}&limit={{ limit }}">↓ Lækkun</a>
+        </div>
+
+        <div class="ctrl-group">
+          <label class="ctrl-label">Lágmarks breyting (kr.)</label>
+          <input type="number" name="min_change" value="{{ min_change }}" placeholder="t.d. 10000000" />
+        </div>
+
+        <div class="ctrl-group">
+          <label class="ctrl-label">Hámark raða</label>
+          <select name="limit">
+            {% for n in [20, 50, 100, 200] %}
+              <option value="{{ n }}" {% if limit == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button class="btn" type="submit">Sía</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div>
+
+    <!-- Yearly context chart -->
+    {% if yearly_labels %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Heildarsumma eftir árum (samhengi)</div>
+      <div class="chart-wrap">
+        <canvas id="yearly-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Anomaly table -->
+    <div class="panel">
+      <div class="section-title">
+        Óvenjulegar breytingar
+        {% if anomaly_rows %}({{ anomaly_rows | length }} niðurstöður){% endif %}
+      </div>
+      {% if anomaly_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{{ dn(group_col) }}</th>
+              <th class="num">Ár</th>
+              <th class="num">Raun</th>
+              <th class="num">Fyrra ár</th>
+              <th class="num">Breyting (kr.)</th>
+              <th class="num">Breyting (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in anomaly_rows %}
+            <tr>
+              <td>{{ row.group or "–" }}</td>
+              <td class="num">{{ row.year }}</td>
+              <td class="num">{{ row.actual }}</td>
+              <td class="num">{{ row.prior }}</td>
+              <td class="num {% if row.direction == 'up' %}chg-up{% else %}chg-down{% endif %}">
+                {% if row.direction == 'up' %}↑{% else %}↓{% endif %} {{ row.change }}
+              </td>
+              <td class="num {% if row.direction == 'up' %}chg-up{% else %}chg-down{% endif %}">
+                {{ row.pct }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="empty">Engar óvenjulegar breytingar fundust með þessum síum.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded and yearly_labels %}
+new Chart(document.getElementById("yearly-chart"), {
+  type: "bar",
+  data: {
+    labels: {{ yearly_labels | tojson }},
+    datasets: [{
+      data: {{ yearly_values | tojson }},
+      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .2)",
+      borderColor:     "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)",
+      borderWidth: 2,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => " " + ctx.parsed.y.toLocaleString("is-IS") + " kr." } }
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: "#f0f0f0" }, ticks: { callback: v => (v/1e9).toFixed(1) + "B" } }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

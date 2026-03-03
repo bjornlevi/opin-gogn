@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% set page_id = "reports" %}
+{% block title %}Reports — {% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}</div>
+  <h1>Reports</h1>
+  <p>Yfirlit og samanburður eftir árum</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <div class="section-title">Sýna eftir</div>
+      <div class="pill-grid" style="margin-bottom:14px">
+        <a class="pill {% if mode == 'tegund' %}active{% endif %}"
+           href="?year={{ year }}&mode=tegund">Tegund</a>
+        <a class="pill {% if mode != 'tegund' %}active{% endif %}"
+           href="?year={{ year }}&mode=org">{% if source == 'rikid' %}Stofnun{% else %}Svið{% endif %}</a>
+      </div>
+
+      <div class="section-title">Ár</div>
+      <div class="pill-grid">
+        <a class="pill {% if year == 'all' %}active{% endif %}" href="?mode={{ mode }}&year=all">Öll</a>
+        {% for y in years %}
+          <a class="pill {% if year | string == y | string %}active{% endif %}"
+             href="?mode={{ mode }}&year={{ y }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div>
+
+    <!-- Yearly totals chart -->
+    {% if yearly_labels %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Heildarútgjöld eftir árum</div>
+      <div class="chart-wrap" style="height:240px">
+        <canvas id="yearly-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Year-over-year top changes -->
+    {% if yoy_rows and yoy_years | length >= 2 %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">
+        Stærstar breytingar: {{ yoy_years[1] }} → {{ yoy_years[0] }} (eftir {{ mode_label }})
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{{ mode_label }}</th>
+              <th class="num">{{ yoy_years[1] }}</th>
+              <th class="num">{{ yoy_years[0] }}</th>
+              <th class="num">Breyting (kr.)</th>
+              <th class="num">Breyting (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in yoy_rows %}
+            <tr>
+              <td>{{ row.group or "–" }}</td>
+              <td class="num">{{ row.prev }}</td>
+              <td class="num">{{ row.cur }}</td>
+              <td class="num {% if row.direction == 'up' %}chg-up{% else %}chg-down{% endif %}">
+                {% if row.direction == 'up' %}↑{% else %}↓{% endif %} {{ row.change }}
+              </td>
+              <td class="num {% if row.direction == 'up' %}chg-up{% else %}chg-down{% endif %}">
+                {{ row.pct }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Full breakdown table -->
+    <div class="panel">
+      <div class="section-title">
+        Sundurliðun eftir {{ mode_label }}
+        {% if year != 'all' %}({{ year }}){% else %}(öll ár){% endif %}
+      </div>
+      {% if report_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{{ mode_label }}</th>
+              <th class="num">Heildarsumma</th>
+              <th class="num">Jákvæðar</th>
+              <th class="num">Neikvæðar</th>
+              <th class="num">Fjöldi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in report_rows %}
+            <tr>
+              <td>{{ row.group or "–" }}</td>
+              <td class="num">{{ row.sum }}</td>
+              <td class="num pos">{{ row.pos }}</td>
+              <td class="num neg">{{ row.neg }}</td>
+              <td class="num">{{ row.count }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+        <div class="empty">Engar niðurstöður.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded and yearly_labels %}
+const accentRGB = "{{ '37,99,235' if source == 'rikid' else '13,148,136' }}";
+new Chart(document.getElementById("yearly-chart"), {
+  type: "bar",
+  data: {
+    labels: {{ yearly_labels | tojson }},
+    datasets: [
+      {
+        label: "Útgjöld",
+        data: {{ yearly_values | tojson }},
+        backgroundColor: `rgba(${accentRGB}, .2)`,
+        borderColor:     `rgba(${accentRGB}, .9)`,
+        borderWidth: 2,
+        borderRadius: 4,
+        yAxisID: "y",
+        order: 2,
+      },
+      {
+        label: "Þróun",
+        data: {{ yearly_values | tojson }},
+        type: "line",
+        borderColor: `rgba(${accentRGB}, .7)`,
+        borderWidth: 2,
+        pointBackgroundColor: `rgba(${accentRGB}, .9)`,
+        pointRadius: 4,
+        tension: 0.3,
+        fill: false,
+        yAxisID: "y",
+        order: 1,
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString("is-IS") + " kr."
+        }
+      }
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: {
+        grid: { color: "#f0f0f0" },
+        ticks: { callback: v => (v/1e9).toFixed(1) + "B" }
+      }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

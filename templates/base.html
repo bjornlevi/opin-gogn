@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="is">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Opin Gogn{% endblock %}</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* Design tokens                                                        */
+    /* ------------------------------------------------------------------ */
+    :root {
+      --bg:      #f4f5f7;
+      --panel:   #ffffff;
+      --ink:     #1a202c;
+      --muted:   #6b7280;
+      --border:  #e2e8f0;
+      --radius:  12px;
+      --shadow:  0 1px 4px rgba(15,23,42,.07), 0 4px 16px rgba(15,23,42,.05);
+
+      /* Source accent colours */
+      --accent-rikid:     #2563eb;
+      --accent-reykjavik: #0d9488;
+      --accent:           #2563eb;   /* overridden by source class */
+      --accent-light:     #eff6ff;
+      --accent-text:      #1d4ed8;
+    }
+    body.source-reykjavik {
+      --accent:       #0d9488;
+      --accent-light: #f0fdfa;
+      --accent-text:  #0f766e;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Reset & base                                                         */
+    /* ------------------------------------------------------------------ */
+    *, *::before, *::after { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      background: var(--bg);
+      color: var(--ink);
+      padding-top: 112px;   /* header + sub-nav */
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ------------------------------------------------------------------ */
+    /* Site header                                                          */
+    /* ------------------------------------------------------------------ */
+    .site-header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 56px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0;
+      padding: 0 24px;
+      z-index: 1000;
+      box-shadow: 0 1px 6px rgba(15,23,42,.06);
+    }
+    .brand {
+      font-weight: 700;
+      font-size: 18px;
+      color: var(--ink);
+      letter-spacing: -.02em;
+      margin-right: 32px;
+      white-space: nowrap;
+    }
+    .source-tabs {
+      display: flex;
+      gap: 4px;
+      flex: 1;
+    }
+    .source-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--muted);
+      transition: background .15s, color .15s;
+    }
+    .source-tab:hover { background: var(--bg); color: var(--ink); text-decoration: none; }
+    .source-tab.active-rikid     { background: #eff6ff; color: var(--accent-rikid);     font-weight: 600; }
+    .source-tab.active-reykjavik { background: #f0fdfa; color: var(--accent-reykjavik); font-weight: 600; }
+    .source-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot-rikid     { background: var(--accent-rikid); }
+    .dot-reykjavik { background: var(--accent-reykjavik); }
+
+    /* ------------------------------------------------------------------ */
+    /* Page sub-navigation                                                 */
+    /* ------------------------------------------------------------------ */
+    .page-nav {
+      position: fixed;
+      top: 56px; left: 0; right: 0;
+      height: 44px;
+      background: var(--panel);
+      border-bottom: 2px solid var(--border);
+      display: flex;
+      align-items: stretch;
+      padding: 0 24px;
+      gap: 2px;
+      z-index: 999;
+    }
+    .page-nav a {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: color .15s, border-color .15s;
+    }
+    .page-nav a:hover { color: var(--ink); text-decoration: none; }
+    .page-nav a.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Page layout                                                          */
+    /* ------------------------------------------------------------------ */
+    .page-header {
+      padding: 24px 28px 12px;
+    }
+    .page-header h1 {
+      margin: 0 0 4px;
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -.02em;
+    }
+    .page-header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .source-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 6px;
+    }
+    .badge-rikid     { background: #eff6ff; color: var(--accent-rikid);     }
+    .badge-reykjavik { background: #f0fdfa; color: var(--accent-reykjavik); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 16px;
+      padding: 0 28px 56px;
+      align-items: start;
+    }
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Panels / cards                                                       */
+    /* ------------------------------------------------------------------ */
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+    .panel + .panel { margin-top: 12px; }
+
+    /* ------------------------------------------------------------------ */
+    /* Sidebar controls                                                     */
+    /* ------------------------------------------------------------------ */
+    .sidebar { display: flex; flex-direction: column; gap: 12px; }
+    .ctrl-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .pill-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-bottom: 2px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--ink);
+      background: #fff;
+      white-space: nowrap;
+    }
+    .pill:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+    .pill.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+    select, input[type=text], input[type=number] {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      background: #fff;
+      color: var(--ink);
+      appearance: auto;
+    }
+    select:focus, input:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: -1px;
+    }
+    .ctrl-group { margin-bottom: 10px; }
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 9px 12px;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+    }
+    .btn:hover { opacity: .9; }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--ink);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Stat cards                                                           */
+    /* ------------------------------------------------------------------ */
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .stat-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .stat-card .s-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .stat-card .s-value {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -.02em;
+      color: var(--ink);
+    }
+    .stat-card .s-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Tables                                                               */
+    /* ------------------------------------------------------------------ */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead th {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 2px solid var(--border);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+    }
+    thead th:hover { color: var(--ink); }
+    tbody tr { border-bottom: 1px solid var(--border); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--bg); }
+    td { padding: 8px 10px; vertical-align: top; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pos { color: #059669; }
+    .neg { color: #dc2626; }
+    .chg-up   { color: #059669; font-weight: 600; }
+    .chg-down { color: #dc2626; font-weight: 600; }
+
+    /* ------------------------------------------------------------------ */
+    /* Chart canvas                                                         */
+    /* ------------------------------------------------------------------ */
+    .chart-wrap {
+      position: relative;
+      height: 220px;
+      margin-bottom: 16px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Empty / error states                                                 */
+    /* ------------------------------------------------------------------ */
+    .empty {
+      padding: 24px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      color: var(--muted);
+      text-align: center;
+      font-size: 14px;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Pagination                                                           */
+    /* ------------------------------------------------------------------ */
+    .pagination {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .pagination a, .pagination span {
+      padding: 4px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--ink);
+    }
+    .pagination a:hover { border-color: var(--accent); text-decoration: none; }
+    .pagination .current { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .pagination .disabled { color: var(--muted); pointer-events: none; }
+
+    /* ------------------------------------------------------------------ */
+    /* Section title                                                        */
+    /* ------------------------------------------------------------------ */
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--muted);
+      margin: 16px 0 8px;
+    }
+    .section-title:first-child { margin-top: 0; }
+
+    /* ------------------------------------------------------------------ */
+    /* Footer                                                               */
+    /* ------------------------------------------------------------------ */
+    .footer-link {
+      display: block;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Home page specifics                                                  */
+    /* ------------------------------------------------------------------ */
+    .home-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      padding: 24px 28px 56px;
+    }
+    @media (max-width: 700px) { .home-grid { grid-template-columns: 1fr; } }
+    .source-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .source-card-header {
+      padding: 20px 20px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .source-card-header h2 { margin: 0 0 4px; font-size: 20px; }
+    .source-card-header p  { margin: 0; font-size: 13px; color: var(--muted); }
+    .source-card-body  { padding: 16px 20px; }
+    .source-card-links { padding: 14px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; }
+    .source-card-links a {
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      color: var(--ink);
+    }
+    .source-card-links a:hover { background: var(--bg); text-decoration: none; }
+    .source-card-links a.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .unavailable { opacity: .5; pointer-events: none; }
+  </style>
+</head>
+<body class="{% if source is defined %}source-{{ source }}{% endif %}">
+
+<!-- ================================================================== -->
+<!-- Site header                                                          -->
+<!-- ================================================================== -->
+<header class="site-header">
+  <a href="{{ url_for('home') }}" class="brand">Opin Gogn</a>
+  <div class="source-tabs">
+    <a href="{{ url_for('rikid_explorer') }}"
+       class="source-tab {% if source is defined and source == 'rikid' %}active-rikid{% endif %}">
+      <span class="source-dot dot-rikid"></span>Ríkið
+    </a>
+    <a href="{{ url_for('rkv_explorer') }}"
+       class="source-tab {% if source is defined and source == 'reykjavik' %}active-reykjavik{% endif %}">
+      <span class="source-dot dot-reykjavik"></span>Reykjavík
+    </a>
+  </div>
+</header>
+
+<!-- ================================================================== -->
+<!-- Page sub-navigation (shown per source)                              -->
+<!-- ================================================================== -->
+{% if source is defined %}
+<nav class="page-nav">
+  {% if source == 'rikid' %}
+    <a href="{{ url_for('rikid_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Explorer</a>
+    <a href="{{ url_for('rikid_analysis') }}"  {% if page_id == 'analysis' %}class="active"{% endif %}>Analysis</a>
+    <a href="{{ url_for('rikid_anomalies') }}" {% if page_id == 'anomalies' %}class="active"{% endif %}>Anomalies</a>
+    <a href="{{ url_for('rikid_reports') }}"   {% if page_id == 'reports' %}class="active"{% endif %}>Reports</a>
+  {% else %}
+    <a href="{{ url_for('rkv_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Explorer</a>
+    <a href="{{ url_for('rkv_analysis') }}"  {% if page_id == 'analysis' %}class="active"{% endif %}>Analysis</a>
+    <a href="{{ url_for('rkv_anomalies') }}" {% if page_id == 'anomalies' %}class="active"{% endif %}>Anomalies</a>
+    <a href="{{ url_for('rkv_reports') }}"   {% if page_id == 'reports' %}class="active"{% endif %}>Reports</a>
+  {% endif %}
+</nav>
+{% endif %}
+
+{% block body %}{% endblock %}
+
+<!-- ================================================================== -->
+<!-- Shared table-sort script                                            -->
+<!-- ================================================================== -->
+<script>
+(function () {
+  const parseCell = t => {
+    const s = (t || "").trim().replace(/\s/g, "");
+    const n = Number(s.replace(/\./g, "").replace(",", ".").replace("%", "").replace("+",""));
+    return isNaN(n) ? { t: "s", v: s.toLowerCase() } : { t: "n", v: n };
+  };
+  document.querySelectorAll("table").forEach(table => {
+    const ths = table.querySelectorAll("thead th");
+    const tbody = table.querySelector("tbody");
+    if (!ths.length || !tbody) return;
+    ths.forEach((th, i) => {
+      th.addEventListener("click", () => {
+        const rows = [...tbody.querySelectorAll("tr")];
+        const dir = th.dataset.order === "asc" ? "desc" : "asc";
+        ths.forEach(h => { h.dataset.order = ""; h.textContent = h.textContent.replace(/ [▲▼]$/, ""); });
+        th.dataset.order = dir;
+        th.textContent += dir === "asc" ? " ▲" : " ▼";
+        rows.sort((a, b) => {
+          const av = parseCell(a.children[i]?.textContent);
+          const bv = parseCell(b.children[i]?.textContent);
+          if (av.t === "n" && bv.t === "n") return dir === "asc" ? av.v - bv.v : bv.v - av.v;
+          return dir === "asc" ? av.v.localeCompare(bv.v) : bv.v.localeCompare(av.v);
+        });
+        rows.forEach(r => tbody.appendChild(r));
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

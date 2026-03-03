@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Opin Gogn — Forsíða{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <h1>Opin Gogn</h1>
+  <p>Samanburður á opinberum útgjöldum ríkisins og Reykjavíkurborgar</p>
+</div>
+
+<div class="home-grid">
+
+  <!-- ================================================================ -->
+  <!-- Rikið card                                                        -->
+  <!-- ================================================================ -->
+  <div class="source-card {% if not rikid.available %}unavailable{% endif %}">
+    <div class="source-card-header" style="border-top: 4px solid var(--accent-rikid)">
+      <span class="source-badge badge-rikid">Ríkið</span>
+      <h2>Opnir reikningar ríkisins</h2>
+      <p>Greiðslur ríkisstofnana til birgja — gögn frá opnirreikningar.is</p>
+    </div>
+    <div class="source-card-body">
+      {% if rikid.available %}
+        <div class="stats-row" style="margin-bottom:12px">
+          <div class="stat-card">
+            <div class="s-label">Nýjasta ár</div>
+            <div class="s-value">{{ rikid.latest_year or "–" }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="s-label">Heildarupphæð</div>
+            <div class="s-value" style="font-size:18px">{{ rikid.latest_total }}</div>
+            <div class="s-sub">kr. (nýjasta ár)</div>
+          </div>
+        </div>
+        {% if rikid.yearly_labels %}
+          <div class="chart-wrap" style="height:200px">
+            <canvas id="chart-rikid"></canvas>
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="empty">Gögn ekki til staðar. Athugaðu slóðina að parquet-skrám.</div>
+      {% endif %}
+    </div>
+    <div class="source-card-links">
+      <a href="{{ url_for('rikid_explorer') }}"  class="primary">Explorer</a>
+      <a href="{{ url_for('rikid_analysis') }}">Analysis</a>
+      <a href="{{ url_for('rikid_anomalies') }}">Anomalies</a>
+      <a href="{{ url_for('rikid_reports') }}">Reports</a>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- Reykjavík card                                                    -->
+  <!-- ================================================================ -->
+  <div class="source-card {% if not reykjavik.available %}unavailable{% endif %}">
+    <div class="source-card-header" style="border-top: 4px solid var(--accent-reykjavik)">
+      <span class="source-badge badge-reykjavik">Reykjavík</span>
+      <h2>Ársuppgjör Reykjavíkurborgar</h2>
+      <p>Raunútgjöld borgarinnar eftir sviðum og tegundum — 2014–nú</p>
+    </div>
+    <div class="source-card-body">
+      {% if reykjavik.available %}
+        <div class="stats-row" style="margin-bottom:12px">
+          <div class="stat-card">
+            <div class="s-label">Nýjasta ár</div>
+            <div class="s-value">{{ reykjavik.latest_year or "–" }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="s-label">Heildarupphæð</div>
+            <div class="s-value" style="font-size:18px">{{ reykjavik.latest_total }}</div>
+            <div class="s-sub">kr. (nýjasta ár)</div>
+          </div>
+        </div>
+        {% if reykjavik.yearly_labels %}
+          <div class="chart-wrap" style="height:200px">
+            <canvas id="chart-rkv"></canvas>
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="empty">Gögn ekki til staðar. Athugaðu slóðina að parquet-skrám.</div>
+      {% endif %}
+    </div>
+    <div class="source-card-links">
+      <a href="{{ url_for('rkv_explorer') }}"  class="primary" style="background:var(--accent-reykjavik);border-color:var(--accent-reykjavik)">Explorer</a>
+      <a href="{{ url_for('rkv_analysis') }}">Analysis</a>
+      <a href="{{ url_for('rkv_anomalies') }}">Anomalies</a>
+      <a href="{{ url_for('rkv_reports') }}">Reports</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function makeHomeChart(id, labels, pos, neg, net, accentRgb) {
+  const fmtB = v => {
+    const b = Math.abs(v) / 1e9;
+    return (v < 0 ? "-" : "") + b.toFixed(1) + "B";
+  };
+  const fmtKr = v => v.toLocaleString("is-IS") + " kr.";
+
+  new Chart(document.getElementById(id), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "Útgjöld",
+          data: neg,
+          backgroundColor: "rgba(220,38,38,.2)",
+          borderColor:     "rgba(220,38,38,.75)",
+          borderWidth: 1.5,
+          borderRadius: { topLeft: 0, topRight: 0, bottomLeft: 4, bottomRight: 4 },
+          stack: "pn",
+        },
+        {
+          label: "Tekjur",
+          data: pos,
+          backgroundColor: "rgba(5,150,105,.25)",
+          borderColor:     "rgba(5,150,105,.85)",
+          borderWidth: 1.5,
+          borderRadius: { topLeft: 4, topRight: 4, bottomLeft: 0, bottomRight: 0 },
+          stack: "pn",
+          hidden: true,
+        },
+        {
+          label: "Nettó",
+          data: net,
+          backgroundColor: `rgba(${accentRgb},.75)`,
+          borderColor:     `rgba(${accentRgb},1)`,
+          borderWidth: 1.5,
+          borderRadius: 4,
+          barPercentage: 0.35,
+          stack: "net",
+          hidden: true,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index" },
+      plugins: {
+        legend: {
+          display: true,
+          position: "bottom",
+          labels: { boxWidth: 12, font: { size: 11 }, padding: 10 }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => " " + ctx.dataset.label + ": " + fmtKr(ctx.parsed.y)
+          }
+        }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+        y: {
+          stacked: true,
+          grid: { color: "#f0f0f0" },
+          ticks: { callback: fmtB, font: { size: 11 } }
+        }
+      }
+    }
+  });
+}
+
+{% if rikid.available and rikid.yearly_labels %}
+makeHomeChart(
+  "chart-rikid",
+  {{ rikid.yearly_labels | tojson }},
+  {{ rikid.yearly_pos    | tojson }},
+  {{ rikid.yearly_neg    | tojson }},
+  {{ rikid.yearly_net    | tojson }},
+  "37,99,235"
+);
+{% endif %}
+
+{% if reykjavik.available and reykjavik.yearly_labels %}
+makeHomeChart(
+  "chart-rkv",
+  {{ reykjavik.yearly_labels | tojson }},
+  {{ reykjavik.yearly_pos    | tojson }},
+  {{ reykjavik.yearly_neg    | tojson }},
+  {{ reykjavik.yearly_net    | tojson }},
+  "13,148,136"
+);
+{% endif %}
+</script>
+{% endblock %}

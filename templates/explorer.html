@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% set page_id = "explorer" %}
+{% block title %}Explorer — {% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}</div>
+  <h1>Explorer</h1>
+  <p>Skoðaðu einstakar greiðslur og síaðu eftir ári, tegund og stofnun</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+
+<div class="layout">
+
+  <!-- ================================================================ -->
+  <!-- Sidebar filters                                                   -->
+  <!-- ================================================================ -->
+  <div class="sidebar">
+    <div class="panel">
+      <div class="section-title">Ár</div>
+      <div class="pill-grid">
+        <a class="pill {% if year == 'all' %}active{% endif %}"
+           href="?year=all&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}">Öll</a>
+        {% for y in years %}
+          <a class="pill {% if year | string == y | string %}active{% endif %}"
+             href="?year={{ y }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <form method="get">
+        <input type="hidden" name="year"  value="{{ year }}" />
+        <input type="hidden" name="buyer" value="{{ buyer }}" />
+        <input type="hidden" name="limit" value="{{ limit }}" />
+
+        <div class="ctrl-group">
+          <label class="ctrl-label">{{ tegund_label or "Tegund útgjalda" }}</label>
+          <select name="tegund">
+            <option value="all" {% if tegund == 'all' %}selected{% endif %}>— Allar —</option>
+            {% for opt in tegund_opts %}
+              <option value="{{ opt }}" {% if tegund == opt %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="ctrl-group">
+          <label class="ctrl-label">{{ buyer_label or "Stofnun" }}</label>
+          <select name="buyer">
+            <option value="all" {% if buyer == 'all' %}selected{% endif %}>— Allar —</option>
+            {% for opt in buyer_opts %}
+              <option value="{{ opt }}" {% if buyer == opt %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <button class="btn" type="submit">Sía</button>
+      </form>
+
+      <form method="get" style="margin-top:10px; display:flex; gap:6px; align-items:center">
+        <input type="hidden" name="year"   value="{{ year }}" />
+        <input type="hidden" name="tegund" value="{{ tegund }}" />
+        <input type="hidden" name="buyer"  value="{{ buyer }}" />
+        <input type="number" name="limit" value="{{ limit }}" min="1" max="500" style="flex:1" />
+        <button class="btn btn-ghost" type="submit" style="width:auto;padding:7px 12px">Línur</button>
+      </form>
+
+      <a class="footer-link" href="?">Hreinsa síur</a>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- Main content                                                      -->
+  <!-- ================================================================ -->
+  <div>
+
+    <!-- Summary stats -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Línur</div>
+        <div class="s-value">{{ fmt(totals.count) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Heildarsumma</div>
+        <div class="s-value">{{ fmt(totals.sum) }}</div>
+        <div class="s-sub">kr.</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Jákvæðar</div>
+        <div class="s-value pos">{{ fmt(totals.pos) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Neikvæðar</div>
+        <div class="s-value neg">{{ fmt(totals.neg) }}</div>
+      </div>
+    </div>
+
+    <!-- Yearly totals chart -->
+    {% if yearly_labels %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Útgjöld eftir árum</div>
+      <div class="chart-wrap">
+        <canvas id="yearly-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Expense type breakdown -->
+    {% if type_breakdown %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Sundurliðun eftir tegund (topp 30)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Tegund</th>
+              <th class="num">Upphæð (kr.)</th>
+              <th class="num">Fjöldi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in type_breakdown %}
+            <tr>
+              <td>{{ row[0] or "–" }}</td>
+              <td class="num {% if (row[1] or 0) < 0 %}neg{% endif %}">{{ fmt(row[1]) }}</td>
+              <td class="num">{{ row[2] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Record rows -->
+    <div class="panel">
+      <div class="section-title">Einstakar færslur (fyrstu {{ limit }})</div>
+      {% if preview_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {% for col in preview_cols %}
+                <th class="{% if col in ('amount', 'raun') %}num{% endif %}">
+                  {{ dn(col) if col not in ('amount', 'raun') else 'Upphæð' }}
+                </th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview_rows %}
+            <tr>
+              {% for col in preview_cols %}
+                <td class="{% if col in ('amount', 'raun') %}num {% if (row.get('amount_raw') or 0) < 0 %}neg{% endif %}{% endif %}">
+                  {{ row.get(col) or "–" }}
+                </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <!-- Pagination -->
+      {% if total_pages > 1 %}
+      <div class="pagination">
+        {% if page > 1 %}
+          <a href="?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}&page={{ page - 1 }}">‹</a>
+        {% else %}
+          <span class="disabled">‹</span>
+        {% endif %}
+        <span class="current">{{ page }} / {{ total_pages }}</span>
+        {% if page < total_pages %}
+          <a href="?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}&page={{ page + 1 }}">›</a>
+        {% else %}
+          <span class="disabled">›</span>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% else %}
+        <div class="empty">Engar niðurstöður fundust.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded and yearly_labels %}
+new Chart(document.getElementById("yearly-chart"), {
+  type: "bar",
+  data: {
+    labels: {{ yearly_labels | tojson }},
+    datasets: [{
+      label: "Útgjöld (kr.)",
+      data: {{ yearly_values | tojson }},
+      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .2)",
+      borderColor:     "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)",
+      borderWidth: 2,
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => " " + ctx.parsed.y.toLocaleString("is-IS") + " kr." } }
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: "#f0f0f0" }, ticks: { callback: v => (v/1e9).toFixed(1) + "B" } }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

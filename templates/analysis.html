@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% set page_id = "analysis" %}
+{% block title %}Analysis — {% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}</div>
+  <h1>Analysis</h1>
+  <p>Útgjöld flokkuð eftir völdum flokki — ein dálkur á ár</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+
+<div class="layout">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <form method="get">
+        <div class="ctrl-group">
+          <label class="ctrl-label">Flokka eftir</label>
+          <select name="group_by" onchange="this.form.submit()">
+            {% for opt in group_options %}
+              <option value="{{ opt }}" {% if group_by == opt %}selected{% endif %}>{{ dn(opt) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="ctrl-group">
+          <label class="ctrl-label">Ár</label>
+          <select name="year" onchange="this.form.submit()">
+            <option value="all" {% if year == 'all' %}selected{% endif %}>Öll ár</option>
+            {% for y in years %}
+              <option value="{{ y }}" {% if year | string == y | string %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="ctrl-group">
+          <label class="ctrl-label">Hámark raða</label>
+          <select name="limit" onchange="this.form.submit()">
+            {% for n in [20, 50, 100, 200] %}
+              <option value="{{ n }}" {% if limit == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <noscript><button class="btn" type="submit">Uppfæra</button></noscript>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div>
+
+    <!-- Overall yearly chart -->
+    {% if yearly_labels %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Heildarsumma eftir árum</div>
+      <div class="chart-wrap">
+        <canvas id="yearly-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Pivot table: rows = groups, columns = years -->
+    <div class="panel">
+      <div class="section-title">
+        {{ dn(group_by) }} — útgjöld eftir ári
+        {% if sorted_groups %}({{ sorted_groups | length }} af {{ pivot | length }}){% endif %}
+      </div>
+      {% if sorted_groups %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{{ dn(group_by) }}</th>
+              {% for y in years_all %}<th class="num">{{ y }}</th>{% endfor %}
+              <th class="num">Samtals</th>
+              {% if years_all | length >= 2 %}<th class="num">Breyting</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for grp in sorted_groups %}
+              {% set row = pivot[grp] %}
+              {% set total = group_totals[grp] %}
+              {% set last_y  = years_all[-1] if years_all else None %}
+              {% set prev_y  = years_all[-2] if years_all | length >= 2 else None %}
+              {% set last_v  = row.get(last_y, 0) %}
+              {% set prev_v  = row.get(prev_y, 0) if prev_y else 0 %}
+              {% set chg     = last_v - prev_v %}
+              <tr>
+                <td>{{ grp or "–" }}</td>
+                {% for y in years_all %}
+                  <td class="num {% if (row.get(y, 0)) < 0 %}neg{% endif %}">
+                    {{ fmt(row.get(y)) if y in row else "–" }}
+                  </td>
+                {% endfor %}
+                <td class="num {% if total < 0 %}neg{% endif %}"><strong>{{ fmt(total) }}</strong></td>
+                {% if years_all | length >= 2 %}
+                  <td class="num {% if chg >= 0 %}chg-up{% else %}chg-down{% endif %}">
+                    {% if prev_v != 0 %}{{ fmt_pct(chg / (prev_v if prev_v > 0 else -prev_v) * 100) }}{% else %}–{% endif %}
+                  </td>
+                {% endif %}
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr style="border-top:2px solid var(--border)">
+              <td><strong>Samtals</strong></td>
+              {% for y in years_all %}
+                <td class="num"><strong>{{ fmt(year_col_totals.get(y, 0)) }}</strong></td>
+              {% endfor %}
+              <td class="num"><strong>{{ fmt(group_totals.values() | sum) }}</strong></td>
+              {% if years_all | length >= 2 %}<td></td>{% endif %}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {% else %}
+        <div class="empty">Engar niðurstöður.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded and yearly_labels %}
+new Chart(document.getElementById("yearly-chart"), {
+  type: "bar",
+  data: {
+    labels: {{ yearly_labels | tojson }},
+    datasets: [{
+      label: "Útgjöld",
+      data: {{ yearly_values | tojson }},
+      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .2)",
+      borderColor:     "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)",
+      borderWidth: 2,
+      borderRadius: 4,
+      type: "bar",
+    }, {
+      label: "Þróun",
+      data: {{ yearly_values | tojson }},
+      type: "line",
+      borderColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .6)",
+      borderWidth: 2,
+      pointRadius: 3,
+      tension: 0.3,
+      fill: false,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => " " + ctx.parsed.y.toLocaleString("is-IS") + " kr." } }
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: "#f0f0f0" }, ticks: { callback: v => (v/1e9).toFixed(1) + "B" } }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}
