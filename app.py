@@ -20,7 +20,7 @@ PREFIX = os.getenv("PREFIX", "").rstrip("/")
 # ---------------------------------------------------------------------------
 RIKID_DATA = Path(
     os.getenv("RIKID_PARQUET",
-              str(BASE_DIR / "data/rikid/parquet/opnirreikningar.parquet"))
+              str(BASE_DIR / "data/rikid/parquet/opnirreikningar_with_corrections.parquet"))
 )
 RIKID_ANOMALIES = Path(
     os.getenv("RIKID_ANOMALIES",
@@ -267,6 +267,7 @@ def create_app() -> Flask:
         year = request.args.get("year", "all")
         tegund = request.args.get("tegund", "all")
         buyer = request.args.get("buyer", "all")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
         page = max(1, int(request.args.get("page", 1)))
         offset = (page - 1) * limit
@@ -281,6 +282,10 @@ def create_app() -> Flask:
             ("Tegund", tegund if tegund != "all" else None),
             ("Kaupandi", buyer if buyer != "all" else None),
         ])
+
+        # Add filter for corrections
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
         years = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
@@ -353,6 +358,7 @@ def create_app() -> Flask:
     def rikid_analysis():
         group_by = request.args.get("group_by", "Tegund")
         year = request.args.get("year", "all")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
 
         if group_by not in ("Tegund", "Kaupandi", "Birgi"):
@@ -364,6 +370,10 @@ def create_app() -> Flask:
                                    error=f"Gögn finnast ekki: {RIKID_DATA}")
 
         where, params = build_where([("year", year if year != "all" else None)])
+
+        # Add filter for corrections
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
         years_all = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year"
@@ -426,6 +436,7 @@ def create_app() -> Flask:
         group_col = request.args.get("group_col", "Tegund")
         direction = request.args.get("direction", "all")
         min_change = request.args.get("min_change", "")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
 
         if group_col not in ("Tegund", "Kaupandi", "Birgi"):
@@ -456,6 +467,8 @@ def create_app() -> Flask:
                 clauses.append("ABS(yoy_real_change) >= ?"); params.append(float(min_change))
             except ValueError:
                 pass
+        if not show_corrections:
+            clauses.append("(is_correction = FALSE OR is_correction IS NULL)")
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
 
         years = [r[0] for r in con.execute(
@@ -504,6 +517,7 @@ def create_app() -> Flask:
     def rikid_reports():
         year = request.args.get("year", "all")
         mode = request.args.get("mode", "tegund")  # tegund | buyer
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
 
         con = open_rikid_con(RIKID_DATA)
         if con is None:
@@ -511,6 +525,10 @@ def create_app() -> Flask:
                                    error=f"Gögn finnast ekki: {RIKID_DATA}")
 
         where, params = build_where([("year", year if year != "all" else None)])
+
+        # Add filter for corrections
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
         years = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
