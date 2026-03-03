@@ -84,6 +84,10 @@ rikid-pipeline:
 		--raw-dir $(RIKID_RAW_DIR) \
 		--parquet-dir $(RIKID_PARQUET_DIR) \
 		--org-id "$(ORG_ID)" --vendor-id "$(VENDOR_ID)" --type-id "$(TYPE_ID)"
+	@echo "==> Detecting correction transactions..."
+	$(PYTHON) scripts/detect_corrections.py \
+		--input $(RIKID_PARQUET_DIR)/opnirreikningar.parquet \
+		--output $(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet
 
 rikid-refresh:
 	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then \
@@ -97,6 +101,10 @@ rikid-refresh:
 		--parquet-dir $(RIKID_PARQUET_DIR) \
 		--org-id "$(ORG_ID)" --vendor-id "$(VENDOR_ID)" --type-id "$(TYPE_ID)" \
 		--force-download
+	@echo "==> Detecting correction transactions..."
+	$(PYTHON) scripts/detect_corrections.py \
+		--input $(RIKID_PARQUET_DIR)/opnirreikningar.parquet \
+		--output $(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet
 
 rikid-anomalies:
 	mkdir -p $(RIKID_PARQUET_DIR)
