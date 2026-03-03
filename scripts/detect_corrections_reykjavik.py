@@ -56,8 +56,8 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
             a.rowid as a_id,
             b.rowid as b_id,
             a.year as year,
-            a.tegund0, a.tegund1, a.tegund2, a.tegund3,
-            a.samtala0, a.samtala1, a.samtala2_canonical, a.samtala3,
+            a.tegund0, a.tegund1, a.tegund2, a.tegund3, a.tegund4,
+            a.samtala0, a.samtala1, a.samtala2, a.samtala3, a.samtala4,
             a.fyrirtaeki,
             a.raun_numeric as amount_a,
             b.raun_numeric as amount_b,
@@ -66,15 +66,17 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
         FROM data_with_flags a
         JOIN data_with_flags b ON
             a.year = b.year AND
-            a.tegund0 = b.tegund0 AND
-            a.tegund1 = b.tegund1 AND
-            a.tegund2 = b.tegund2 AND
-            a.tegund3 = b.tegund3 AND
-            a.samtala0 = b.samtala0 AND
-            a.samtala1 = b.samtala1 AND
-            a.samtala2_canonical = b.samtala2_canonical AND
-            a.samtala3 = b.samtala3 AND
-            a.fyrirtaeki = b.fyrirtaeki AND
+            COALESCE(a.tegund0, '') = COALESCE(b.tegund0, '') AND
+            COALESCE(a.tegund1, '') = COALESCE(b.tegund1, '') AND
+            COALESCE(a.tegund2, '') = COALESCE(b.tegund2, '') AND
+            COALESCE(a.tegund3, '') = COALESCE(b.tegund3, '') AND
+            COALESCE(a.tegund4, '') = COALESCE(b.tegund4, '') AND
+            COALESCE(a.samtala0, '') = COALESCE(b.samtala0, '') AND
+            COALESCE(a.samtala1, '') = COALESCE(b.samtala1, '') AND
+            COALESCE(a.samtala2, '') = COALESCE(b.samtala2, '') AND
+            COALESCE(a.samtala3, '') = COALESCE(b.samtala3, '') AND
+            COALESCE(a.samtala4, '') = COALESCE(b.samtala4, '') AND
+            COALESCE(a.fyrirtaeki, '') = COALESCE(b.fyrirtaeki, '') AND
             a.raun_numeric * b.raun_numeric < 0  -- opposite signs
         WHERE
             ABS(a.raun_numeric) > ? AND
