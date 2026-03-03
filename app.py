@@ -438,7 +438,6 @@ def create_app() -> Flask:
         group_col = request.args.get("group_col", "Tegund")
         direction = request.args.get("direction", "all")
         min_change = request.args.get("min_change", "")
-        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
 
         if group_col not in ("Tegund", "Kaupandi", "Birgi"):
@@ -469,8 +468,6 @@ def create_app() -> Flask:
                 clauses.append("ABS(yoy_real_change) >= ?"); params.append(float(min_change))
             except ValueError:
                 pass
-        if not show_corrections:
-            clauses.append("(is_correction = FALSE OR is_correction IS NULL)")
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
 
         years = [r[0] for r in con.execute(
@@ -770,7 +767,6 @@ def create_app() -> Flask:
         group_col = request.args.get("group_col", "tegund0")
         direction = request.args.get("direction", "all")
         min_change = request.args.get("min_change", "")
-        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
 
         valid_groups = RKV_TYPE_COLS + RKV_ORG_COLS
@@ -801,13 +797,12 @@ def create_app() -> Flask:
                 clauses.append("ABS(yoy_real_change) >= ?"); params.append(float(min_change))
             except ValueError:
                 pass
-        if not show_corrections:
-            clauses.append("(is_correction = FALSE OR is_correction IS NULL)")
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
 
-        years = [r[0] for r in con.execute(
+        years_raw = [r[0] for r in con.execute(
             f"SELECT DISTINCT year FROM {view} WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
+        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         # Find which group column is actually in the anomalies parquet
         cols_in_view = [r[0] for r in con.execute(f"PRAGMA table_info('{view}')").fetchall()]
