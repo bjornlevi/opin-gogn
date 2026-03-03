@@ -124,11 +124,11 @@ def _rikid_headline() -> dict:
         return {
             "available": True,
             "years": years,
-            "yearly_labels": [str(r[0]) for r in yearly],
+            "yearly_labels": [str(r[0]) + ("*" if i == 0 else "") for i, r in enumerate(yearly)],
             "yearly_pos":    [float(r[1]) if r[1] is not None else 0 for r in yearly],
             "yearly_neg":    [float(r[2]) if r[2] is not None else 0 for r in yearly],
             "yearly_net":    [float(r[3]) if r[3] is not None else 0 for r in yearly],
-            "latest_year":   years[0] if years else None,
+            "latest_year":   (years[0] + "*") if years else None,
             "latest_total":  fmt(latest[3]) if latest else "–",
         }
     except Exception as e:
@@ -155,11 +155,11 @@ def _rkv_headline() -> dict:
         return {
             "available": True,
             "years": years,
-            "yearly_labels": [str(r[0]) for r in yearly],
+            "yearly_labels": [str(r[0]) + ("*" if i == 0 else "") for i, r in enumerate(yearly)],
             "yearly_pos":    [float(r[1]) if r[1] is not None else 0 for r in yearly],
             "yearly_neg":    [float(r[2]) if r[2] is not None else 0 for r in yearly],
             "yearly_net":    [float(r[3]) if r[3] is not None else 0 for r in yearly],
-            "latest_year":   years[0] if years else None,
+            "latest_year":   (years[0] + "*") if years else None,
             "latest_total":  fmt(latest[3]) if latest else "–",
         }
     except Exception as e:
