@@ -287,9 +287,10 @@ def create_app() -> Flask:
         if not show_corrections:
             where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
-        years = [r[0] for r in con.execute(
+        years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
+        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         tegund_opts = [r[0] for r in con.execute(
             f'SELECT DISTINCT "Tegund" FROM data WHERE "Tegund" IS NOT NULL ORDER BY "Tegund" LIMIT 300'
@@ -408,9 +409,10 @@ def create_app() -> Flask:
         ).fetchall()
 
         group_options = ["Tegund", "Kaupandi", "Birgi"]
-        years = [r[0] for r in con.execute(
+        years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
+        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         return render_template(
             "analysis.html",
@@ -530,9 +532,10 @@ def create_app() -> Flask:
         if not show_corrections:
             where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
-        years = [r[0] for r in con.execute(
+        years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
+        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         group_col = '"Tegund"' if mode == "tegund" else '"Kaupandi"'
 
@@ -623,9 +626,10 @@ def create_app() -> Flask:
         if not show_corrections:
             where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
-        years = [r[0] for r in con.execute(
+        years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
+        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         tegund0_opts = [r[0] for r in con.execute(
             "SELECT DISTINCT tegund0 FROM data WHERE tegund0 IS NOT NULL ORDER BY tegund0 LIMIT 200"
@@ -712,9 +716,10 @@ def create_app() -> Flask:
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year"
         ).fetchall()]
 
-        years = [r[0] for r in con.execute(
+        years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
+        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         year_filter = f"AND year = {int(year)}" if year != "all" else ""
         correction_filter = "" if show_corrections else "AND (is_correction = FALSE OR is_correction IS NULL)"
@@ -868,9 +873,10 @@ def create_app() -> Flask:
         if not show_corrections:
             where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
-        years = [r[0] for r in con.execute(
+        years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
+        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         group_col = "tegund0" if mode == "tegund" else "samtala0"
 
