@@ -32,7 +32,7 @@ RIKID_ANOMALIES_ALL = Path(
 )
 REYKJAVIK_DATA = Path(
     os.getenv("REYKJAVIK_PARQUET",
-              str(BASE_DIR / "data/reykjavik/processed/arsuppgjor_combined.parquet"))
+              str(BASE_DIR / "data/reykjavik/processed/arsuppgjor_combined_with_corrections.parquet"))
 )
 REYKJAVIK_ANOMALIES = Path(
     os.getenv("REYKJAVIK_ANOMALIES",
@@ -603,6 +603,7 @@ def create_app() -> Flask:
         year = request.args.get("year", "all")
         tegund0 = request.args.get("tegund0", "all")
         samtala0 = request.args.get("samtala0", "all")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
         page = max(1, int(request.args.get("page", 1)))
         offset = (page - 1) * limit
@@ -617,6 +618,10 @@ def create_app() -> Flask:
             ("tegund0", tegund0 if tegund0 != "all" else None),
             ("samtala0", samtala0 if samtala0 != "all" else None),
         ])
+
+        # Add filter for corrections
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
         years = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
@@ -691,6 +696,7 @@ def create_app() -> Flask:
     def rkv_analysis():
         group_by = request.args.get("group_by", "tegund0")
         year = request.args.get("year", "all")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
 
         valid_groups = RKV_TYPE_COLS + RKV_ORG_COLS
@@ -711,10 +717,11 @@ def create_app() -> Flask:
         ).fetchall()]
 
         year_filter = f"AND year = {int(year)}" if year != "all" else ""
+        correction_filter = "" if show_corrections else "AND (is_correction = FALSE OR is_correction IS NULL)"
 
         group_yearly = con.execute(
             f"SELECT \"{group_by}\", year, SUM({RKV_AMOUNT_EXPR}) AS s "
-            f'FROM data WHERE "{group_by}" IS NOT NULL {year_filter} '
+            f'FROM data WHERE "{group_by}" IS NOT NULL {year_filter} {correction_filter} '
             f'GROUP BY "{group_by}", year ORDER BY "{group_by}", year'
         ).fetchall()
 
@@ -758,6 +765,7 @@ def create_app() -> Flask:
         group_col = request.args.get("group_col", "tegund0")
         direction = request.args.get("direction", "all")
         min_change = request.args.get("min_change", "")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
 
         valid_groups = RKV_TYPE_COLS + RKV_ORG_COLS
@@ -788,6 +796,8 @@ def create_app() -> Flask:
                 clauses.append("ABS(yoy_real_change) >= ?"); params.append(float(min_change))
             except ValueError:
                 pass
+        if not show_corrections:
+            clauses.append("(is_correction = FALSE OR is_correction IS NULL)")
         where = "WHERE " + " AND ".join(clauses) if clauses else ""
 
         years = [r[0] for r in con.execute(
@@ -845,6 +855,7 @@ def create_app() -> Flask:
     def rkv_reports():
         year = request.args.get("year", "all")
         mode = request.args.get("mode", "tegund")  # tegund | org
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
 
         con = open_con(REYKJAVIK_DATA)
         if con is None:
@@ -852,6 +863,10 @@ def create_app() -> Flask:
                                    error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
 
         where, params = build_where([("year", year if year != "all" else None)])
+
+        # Add filter for corrections
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
         years = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"

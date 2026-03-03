@@ -115,7 +115,7 @@ rikid-anomalies:
 
 # ── Reykjavík ────────────────────────────────────────────────────────────────
 
-reykjavik-pipeline: reykjavik-download reykjavik-prepare reykjavik-lookup reykjavik-anomalies
+reykjavik-pipeline: reykjavik-download reykjavik-prepare reykjavik-corrections reykjavik-lookup reykjavik-anomalies
 
 reykjavik-download:
 	mkdir -p $(RKV_RAW_DIR)
@@ -127,6 +127,12 @@ reykjavik-prepare:
 	$(PYTHON_REYKJAVIK) $(REYKJAVIK_SCRIPTS)/prepare_arsuppgjor.py \
 		--raw-dir $(RKV_RAW_DIR) \
 		--processed-dir $(RKV_PROCESSED_DIR)
+
+reykjavik-corrections:
+	@echo "==> Detecting correction transactions..."
+	$(PYTHON) scripts/detect_corrections_reykjavik.py \
+		--input $(RKV_PROCESSED_DIR)/arsuppgjor_combined.parquet \
+		--output $(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet
 
 reykjavik-lookup:
 	$(PYTHON_REYKJAVIK) $(REYKJAVIK_SCRIPTS)/lookup_vm_entities.py \
