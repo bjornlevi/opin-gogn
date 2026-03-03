@@ -111,14 +111,14 @@ def _rikid_headline() -> dict:
         return {"available": False}
     try:
         years = [r[0] for r in con.execute(
-            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL AND (is_correction = FALSE OR is_correction IS NULL) ORDER BY year DESC"
         ).fetchall()]
         yearly = con.execute(
             'SELECT year, '
             'SUM(CASE WHEN "Upphæð línu" > 0 THEN "Upphæð línu" END) AS pos, '
             'SUM(CASE WHEN "Upphæð línu" < 0 THEN "Upphæð línu" END) AS neg, '
             'SUM("Upphæð línu") AS net '
-            'FROM data GROUP BY year ORDER BY year'
+            'FROM data WHERE is_correction = FALSE OR is_correction IS NULL GROUP BY year ORDER BY year'
         ).fetchall()
         latest = next((r for r in yearly if r[0] == years[0]), None) if years else None
         return {
@@ -141,7 +141,7 @@ def _rkv_headline() -> dict:
         return {"available": False}
     try:
         years = [r[0] for r in con.execute(
-            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL AND (is_correction = FALSE OR is_correction IS NULL) ORDER BY year DESC"
         ).fetchall()]
         amt = "TRY_CAST(REPLACE(REPLACE(raun, '.', ''), ',', '.') AS DOUBLE)"
         yearly = con.execute(
@@ -149,7 +149,7 @@ def _rkv_headline() -> dict:
             f"SUM(CASE WHEN {amt} > 0 THEN {amt} END) AS pos, "
             f"SUM(CASE WHEN {amt} < 0 THEN {amt} END) AS neg, "
             f"SUM({amt}) AS net "
-            f"FROM data GROUP BY year ORDER BY year"
+            f"FROM data WHERE is_correction = FALSE OR is_correction IS NULL GROUP BY year ORDER BY year"
         ).fetchall()
         latest = next((r for r in yearly if r[0] == years[0]), None) if years else None
         return {
