@@ -109,7 +109,7 @@ rikid-refresh:
 rikid-anomalies:
 	mkdir -p $(RIKID_PARQUET_DIR)
 	$(PYTHON_RIKID) $(RIKID_SCRIPTS)/build_anomalies.py \
-		--input $(RIKID_PARQUET_DIR)/opnirreikningar.parquet \
+		--input $(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet \
 		--out-flagged $(RIKID_PARQUET_DIR)/anomalies_flagged.parquet \
 		--out-all $(RIKID_PARQUET_DIR)/anomalies_yearly_all.parquet
 
@@ -142,5 +142,5 @@ reykjavik-lookup:
 
 reykjavik-anomalies:
 	$(PYTHON_REYKJAVIK) $(REYKJAVIK_SCRIPTS)/detect_anomalies.py \
-		--parquet $(RKV_PROCESSED_DIR)/arsuppgjor_combined.parquet \
+		--parquet $(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet \
 		--out-dir $(RKV_PROCESSED_DIR)
