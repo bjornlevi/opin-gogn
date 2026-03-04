@@ -6,7 +6,7 @@
 <div class="page-header">
   <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}</div>
   <h1>Analysis</h1>
-  <p>Útgjöld flokkuð eftir völdum flokki — ein dálkur á ár</p>
+  <p>Breyting milli ára fyrir valda einingu samanborið við meðaltal breytinga</p>
 </div>
 
 {% if not data_loaded %}
@@ -14,28 +14,39 @@
 {% else %}
 
 <div class="layout">
-
-  <!-- Sidebar -->
   <div class="sidebar">
     <div class="panel">
       <form method="get">
+        <input type="hidden" name="focus_value" value="{{ focus_value }}" />
+        <input type="hidden" name="limit" value="{{ limit }}" />
         <div class="ctrl-group">
-          <label class="ctrl-label">Flokka eftir</label>
-          <select name="group_by" onchange="this.form.submit()">
-            {% for opt in group_options %}
-              <option value="{{ opt }}" {% if group_by == opt %}selected{% endif %}>{{ dn(opt) }}</option>
+          <label class="ctrl-label">Greina eftir</label>
+          <select name="focus" onchange="this.form.submit()">
+            <option value="tegund" {% if focus == 'tegund' %}selected{% endif %}>Tegund útgjalda</option>
+            <option value="buyer" {% if focus == 'buyer' %}selected{% endif %}>Stofnun</option>
+          </select>
+        </div>
+      </form>
+
+      <form method="get">
+        <input type="hidden" name="focus" value="{{ focus }}" />
+        <input type="hidden" name="limit" value="{{ limit }}" />
+        <div class="ctrl-group">
+          <label class="ctrl-label">{{ focus_label }}</label>
+          <input id="search-focus" type="text" placeholder="Leita í valkostum..." style="margin-bottom:6px" />
+          <select id="select-focus" name="focus_value">
+            <option value="all" {% if focus_value == 'all' %}selected{% endif %}>— Allar —</option>
+            {% for opt in focus_options %}
+              <option value="{{ opt }}" {% if focus_value == opt %}selected{% endif %}>{{ opt }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="ctrl-group">
-          <label class="ctrl-label">Ár</label>
-          <select name="year" onchange="this.form.submit()">
-            <option value="all" {% if year == 'all' %}selected{% endif %}>Öll ár</option>
-            {% for y in years %}
-              <option value="{{ y }}" {% if year | string == y | string %}selected{% endif %}>{{ y }}</option>
-            {% endfor %}
-          </select>
-        </div>
+        <button class="btn" type="submit">Greina</button>
+      </form>
+
+      <form method="get" style="margin-top:10px">
+        <input type="hidden" name="focus" value="{{ focus }}" />
+        <input type="hidden" name="focus_value" value="{{ focus_value }}" />
         <div class="ctrl-group">
           <label class="ctrl-label">Hámark raða</label>
           <select name="limit" onchange="this.form.submit()">
@@ -44,80 +55,132 @@
             {% endfor %}
           </select>
         </div>
-        <noscript><button class="btn" type="submit">Uppfæra</button></noscript>
       </form>
     </div>
   </div>
 
-  <!-- Main -->
   <div>
-
-    <!-- Overall yearly chart -->
-    {% if yearly_labels %}
+    {% if active_filters %}
     <div class="panel" style="margin-bottom:12px">
-      <div class="section-title">Heildarsumma eftir árum</div>
-      <div class="chart-wrap">
-        <canvas id="yearly-chart"></canvas>
+      <div class="section-title">Virkar síur</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px">
+        {% for f in active_filters %}
+          <span class="pill" style="display:inline-flex; gap:8px; align-items:center; cursor:default">
+            <span>{{ f.label }}: {{ f.value }}</span>
+            <a href="?focus={{ focus }}&focus_value=all&limit={{ limit }}&page=1"
+               style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+          </span>
+        {% endfor %}
       </div>
     </div>
     {% endif %}
 
-    <!-- Pivot table: rows = groups, columns = years -->
-    <div class="panel">
-      <div class="section-title">
-        {{ dn(group_by) }} — útgjöld eftir ári
-        {% if sorted_groups %}({{ sorted_groups | length }} af {{ pivot | length }}){% endif %}
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Valin breyting % (nýjasta ár)</div>
+        <div class="s-value {% if latest and (latest.change_pct_raw or 0) < 0 %}neg{% endif %}">
+          {{ latest.change_pct if latest else "–" }}
+        </div>
       </div>
-      {% if sorted_groups %}
+      <div class="stat-card">
+        <div class="s-label">Meðaltalsbreyting % (nýjasta ár)</div>
+        <div class="s-value {% if latest and (latest.avg_change_pct_raw or 0) < 0 %}neg{% endif %}">
+          {{ latest.avg_change_pct if latest else "–" }}
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Mismunur (prósentustig)</div>
+        <div class="s-value {% if latest and (latest.diff_pct_raw or 0) < 0 %}neg{% endif %}">
+          {{ latest.diff_pct if latest else "–" }}
+        </div>
+      </div>
+    </div>
+
+    {% if chart_labels %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Breyting vs. meðaltal eftir árum</div>
+      <div class="chart-wrap">
+        <canvas id="change-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Samanburður breytinga eftir árum</div>
+      {% if change_rows %}
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>{{ dn(group_by) }}</th>
-              {% for y in years_all %}<th class="num">{{ y }}</th>{% endfor %}
-              <th class="num">Samtals</th>
-              {% if years_all | length >= 2 %}<th class="num">Breyting</th>{% endif %}
+              <th>Ár</th>
+              <th class="num">Heildarútgjöld</th>
+              <th class="num">Breyting valins (%)</th>
+              <th class="num">Meðaltalsbreyting (%)</th>
+              <th class="num">Mismunur (p.p.)</th>
             </tr>
           </thead>
           <tbody>
-            {% for grp in sorted_groups %}
-              {% set row = pivot[grp] %}
-              {% set total = group_totals[grp] %}
-              {% set last_y  = years_all[-1] if years_all else None %}
-              {% set prev_y  = years_all[-2] if years_all | length >= 2 else None %}
-              {% set last_v  = row.get(last_y, 0) %}
-              {% set prev_v  = row.get(prev_y, 0) if prev_y else 0 %}
-              {% set chg     = last_v - prev_v %}
+            {% for r in change_rows %}
               <tr>
-                <td>{{ grp or "–" }}</td>
-                {% for y in years_all %}
-                  <td class="num {% if (row.get(y, 0)) < 0 %}neg{% endif %}">
-                    {{ fmt(row.get(y)) if y in row else "–" }}
-                  </td>
-                {% endfor %}
-                <td class="num {% if total < 0 %}neg{% endif %}"><strong>{{ fmt(total) }}</strong></td>
-                {% if years_all | length >= 2 %}
-                  <td class="num {% if chg >= 0 %}chg-up{% else %}chg-down{% endif %}">
-                    {% if prev_v != 0 %}{{ fmt_pct(chg / (prev_v if prev_v > 0 else -prev_v) * 100) }}{% else %}–{% endif %}
-                  </td>
-                {% endif %}
+                <td>{{ r.year }}</td>
+                <td class="num {% if (r.total_raw or 0) < 0 %}neg{% endif %}">{{ r.total }}</td>
+                <td class="num {% if r.change_pct_raw is not none and r.change_pct_raw < 0 %}neg{% endif %}">{{ r.change_pct }}</td>
+                <td class="num {% if r.avg_change_pct_raw is not none and r.avg_change_pct_raw < 0 %}neg{% endif %}">{{ r.avg_change_pct }}</td>
+                <td class="num {% if r.diff_pct_raw is not none and r.diff_pct_raw < 0 %}neg{% endif %}">{{ r.diff_pct }}</td>
               </tr>
             {% endfor %}
           </tbody>
-          <tfoot>
-            <tr style="border-top:2px solid var(--border)">
-              <td><strong>Samtals</strong></td>
-              {% for y in years_all %}
-                <td class="num"><strong>{{ fmt(year_col_totals.get(y, 0)) }}</strong></td>
-              {% endfor %}
-              <td class="num"><strong>{{ fmt(group_totals.values() | sum) }}</strong></td>
-              {% if years_all | length >= 2 %}<td></td>{% endif %}
-            </tr>
-          </tfoot>
         </table>
       </div>
       {% else %}
         <div class="empty">Engar niðurstöður.</div>
+      {% endif %}
+    </div>
+
+    <div class="panel">
+      <div class="section-title">Einstakar færslur (fyrstu {{ limit }})</div>
+      {% if preview_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {% for col in preview_cols %}
+                <th class="{% if col in ('amount', 'raun') %}num{% endif %}">
+                  {{ dn(col) if col not in ('amount', 'raun') else 'Upphæð' }}
+                </th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in preview_rows %}
+            <tr>
+              {% for col in preview_cols %}
+                <td class="{% if col in ('amount', 'raun') %}num {% if (row.get('amount_raw') or 0) < 0 %}neg{% endif %}{% endif %}">
+                  {{ row.get(col) or "–" }}
+                </td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if total_pages > 1 %}
+      <div class="pagination">
+        {% if page > 1 %}
+          <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&limit={{ limit }}&page={{ page - 1 }}">‹</a>
+        {% else %}
+          <span class="disabled">‹</span>
+        {% endif %}
+        <span class="current">{{ page }} / {{ total_pages }}</span>
+        {% if page < total_pages %}
+          <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&limit={{ limit }}&page={{ page + 1 }}">›</a>
+        {% else %}
+          <span class="disabled">›</span>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="empty">Engar niðurstöður fundust.</div>
       {% endif %}
     </div>
   </div>
@@ -125,39 +188,88 @@
 {% endif %}
 
 <script>
-{% if data_loaded and yearly_labels %}
-new Chart(document.getElementById("yearly-chart"), {
-  type: "bar",
+{% if data_loaded %}
+function wireSelectSearch(searchId, selectId) {
+  const search = document.getElementById(searchId);
+  const select = document.getElementById(selectId);
+  if (!search || !select) return;
+
+  const originalOptions = Array.from(select.options).map((opt) => ({
+    value: opt.value,
+    text: opt.text,
+    selected: opt.selected,
+  }));
+
+  const render = () => {
+    const q = search.value.trim().toLowerCase();
+    const currentValue = select.value;
+    const filtered = q
+      ? originalOptions.filter((opt) => opt.value === "all" || opt.text.toLowerCase().includes(q))
+      : originalOptions;
+
+    select.innerHTML = "";
+    filtered.forEach((opt) => {
+      const el = document.createElement("option");
+      el.value = opt.value;
+      el.text = opt.text;
+      el.selected = opt.value === currentValue || (currentValue === "" && opt.selected);
+      select.appendChild(el);
+    });
+
+    if (!Array.from(select.options).some((opt) => opt.value === currentValue)) {
+      select.value = "all";
+    }
+  };
+
+  search.addEventListener("input", render);
+}
+wireSelectSearch("search-focus", "select-focus");
+{% endif %}
+
+{% if data_loaded and chart_labels %}
+new Chart(document.getElementById("change-chart"), {
   data: {
-    labels: {{ yearly_labels | tojson }},
+    labels: {{ chart_labels | tojson }},
     datasets: [{
-      label: "Útgjöld",
-      data: {{ yearly_values | tojson }},
-      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .2)",
-      borderColor:     "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)",
+      label: "Mismunur (p.p.)",
+      data: {{ chart_diff | tojson }},
+      type: "bar",
+      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .18)",
+      borderColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)",
       borderWidth: 2,
       borderRadius: 4,
-      type: "bar",
+      yAxisID: "y",
     }, {
-      label: "Þróun",
-      data: {{ yearly_values | tojson }},
+      label: "Valin breyting (%)",
+      data: {{ chart_selected_change | tojson }},
       type: "line",
-      borderColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .6)",
+      borderColor: "#1f2937",
       borderWidth: 2,
       pointRadius: 3,
-      tension: 0.3,
+      tension: 0.25,
       fill: false,
+      yAxisID: "y",
+    }, {
+      label: "Meðaltalsbreyting (%)",
+      data: {{ chart_avg_change | tojson }},
+      type: "line",
+      borderColor: "#9ca3af",
+      borderWidth: 2,
+      pointRadius: 2,
+      tension: 0.25,
+      fill: false,
+      yAxisID: "y",
     }]
   },
   options: {
     responsive: true, maintainAspectRatio: false,
     plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: ctx => " " + ctx.parsed.y.toLocaleString("is-IS") + " kr." } }
+      legend: { display: true, position: "bottom" },
+      tooltip: { callbacks: { label: ctx => " " + Number(ctx.parsed.y || 0).toFixed(2) + "%" } }
     },
     scales: {
       x: { grid: { display: false } },
-      y: { grid: { color: "#f0f0f0" }, ticks: { callback: v => (v/1e9).toFixed(1) + "B" } }
+      y: { grid: { color: "#f0f0f0" }, ticks: { callback: v => Number(v).toFixed(1) + "%" } }
     }
   }
 });

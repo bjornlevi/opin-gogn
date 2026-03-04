@@ -26,7 +26,7 @@
            href="?year=all&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}">Öll</a>
         {% for y in years %}
           <a class="pill {% if year | string == y | string %}active{% endif %}"
-             href="?year={{ y }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}">{{ y }}</a>
+             href="?year={{ y }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}">{{ y }}{% if loop.first %}*{% endif %}</a>
         {% endfor %}
       </div>
     </div>
@@ -34,12 +34,12 @@
     <div class="panel">
       <form method="get">
         <input type="hidden" name="year"  value="{{ year }}" />
-        <input type="hidden" name="buyer" value="{{ buyer }}" />
         <input type="hidden" name="limit" value="{{ limit }}" />
 
         <div class="ctrl-group">
           <label class="ctrl-label">{{ tegund_label or "Tegund útgjalda" }}</label>
-          <select name="tegund">
+          <input id="search-tegund" type="text" placeholder="Leita í valkostum..." style="margin-bottom:6px" />
+          <select id="select-tegund" name="tegund">
             <option value="all" {% if tegund == 'all' %}selected{% endif %}>— Allar —</option>
             {% for opt in tegund_opts %}
               <option value="{{ opt }}" {% if tegund == opt %}selected{% endif %}>{{ opt }}</option>
@@ -49,7 +49,8 @@
 
         <div class="ctrl-group">
           <label class="ctrl-label">{{ buyer_label or "Stofnun" }}</label>
-          <select name="buyer">
+          <input id="search-buyer" type="text" placeholder="Leita í valkostum..." style="margin-bottom:6px" />
+          <select id="select-buyer" name="buyer">
             <option value="all" {% if buyer == 'all' %}selected{% endif %}>— Allar —</option>
             {% for opt in buyer_opts %}
               <option value="{{ opt }}" {% if buyer == opt %}selected{% endif %}>{{ opt }}</option>
@@ -108,32 +109,70 @@
     </div>
     {% endif %}
 
-    <!-- Expense type breakdown -->
-    {% if type_breakdown %}
+    {% if active_filters %}
     <div class="panel" style="margin-bottom:12px">
-      <div class="section-title">Sundurliðun eftir tegund (topp 30)</div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Tegund</th>
-              <th class="num">Upphæð (kr.)</th>
-              <th class="num">Fjöldi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in type_breakdown %}
-            <tr>
-              <td>{{ row[0] or "–" }}</td>
-              <td class="num {% if (row[1] or 0) < 0 %}neg{% endif %}">{{ fmt(row[1]) }}</td>
-              <td class="num">{{ row[2] }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="section-title">Virkar síur</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px">
+        {% for f in active_filters %}
+          <span class="pill" style="display:inline-flex; gap:8px; align-items:center; cursor:default">
+            <span>{{ f.label }}: {{ f.value }}</span>
+            {% if f.param == "year" %}
+              <a href="?year=all&tegund={{ tegund | urlencode }}&buyer={{ buyer | urlencode }}&limit={{ limit }}&page=1"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% elif f.param == "tegund" %}
+              <a href="?year={{ year }}&tegund=all&buyer={{ buyer | urlencode }}&limit={{ limit }}&page=1"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% elif f.param == "buyer" %}
+              <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer=all&limit={{ limit }}&page=1"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% endif %}
+          </span>
+        {% endfor %}
       </div>
     </div>
     {% endif %}
+
+    <!-- Breakdown panels -->
+    {% for section in breakdown_sections %}
+      {% if section.rows %}
+      <div class="panel" style="margin-bottom:12px">
+        <div class="section-title">{{ section.title }}</div>
+        {% if active_filters %}
+          <div style="font-size:12px; color:var(--muted); margin:-4px 0 8px">
+            Taflan miðast við valdar síur hér að ofan.
+          </div>
+        {% endif %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{{ section.label }}</th>
+                <th class="num">Upphæð (kr.)</th>
+                <th class="num">Fjöldi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in section.rows %}
+              <tr>
+                <td>
+                  {% if row[0] and section.filter_param == "tegund" %}
+                    <a href="?year={{ year }}&tegund={{ row[0] | urlencode }}&buyer={{ buyer | urlencode }}&limit={{ limit }}&page=1">{{ row[0] }}</a>
+                  {% elif row[0] and section.filter_param == "buyer" %}
+                    <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer={{ row[0] | urlencode }}&limit={{ limit }}&page=1">{{ row[0] }}</a>
+                  {% else %}
+                    {{ row[0] or "–" }}
+                  {% endif %}
+                </td>
+                <td class="num {% if (row[1] or 0) < 0 %}neg{% endif %}">{{ fmt(row[1]) }}</td>
+                <td class="num">{{ row[2] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+    {% endfor %}
 
     <!-- Record rows -->
     <div class="panel">
@@ -214,6 +253,46 @@ new Chart(document.getElementById("yearly-chart"), {
     }
   }
 });
+{% endif %}
+
+{% if data_loaded %}
+function wireSelectSearch(searchId, selectId) {
+  const search = document.getElementById(searchId);
+  const select = document.getElementById(selectId);
+  if (!search || !select) return;
+
+  const originalOptions = Array.from(select.options).map((opt) => ({
+    value: opt.value,
+    text: opt.text,
+    selected: opt.selected,
+  }));
+
+  const render = () => {
+    const q = search.value.trim().toLowerCase();
+    const currentValue = select.value;
+    const filtered = q
+      ? originalOptions.filter((opt) => opt.value === "all" || opt.text.toLowerCase().includes(q))
+      : originalOptions;
+
+    select.innerHTML = "";
+    filtered.forEach((opt) => {
+      const el = document.createElement("option");
+      el.value = opt.value;
+      el.text = opt.text;
+      el.selected = opt.value === currentValue || (currentValue === "" && opt.selected);
+      select.appendChild(el);
+    });
+
+    if (!Array.from(select.options).some((opt) => opt.value === currentValue)) {
+      select.value = "all";
+    }
+  };
+
+  search.addEventListener("input", render);
+}
+
+wireSelectSearch("search-tegund", "select-tegund");
+wireSelectSearch("search-buyer", "select-buyer");
 {% endif %}
 </script>
 {% endblock %}

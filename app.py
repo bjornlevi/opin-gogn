@@ -282,34 +282,48 @@ def create_app() -> Flask:
             ("Tegund", tegund if tegund != "all" else None),
             ("Kaupandi", buyer if buyer != "all" else None),
         ])
+        chart_where, chart_params = build_where([
+            ("Tegund", tegund if tegund != "all" else None),
+            ("Kaupandi", buyer if buyer != "all" else None),
+        ])
 
         # Add filter for corrections
         if not show_corrections:
             where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+            chart_where += " AND (is_correction = FALSE OR is_correction IS NULL)" if chart_where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
         years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
-        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         tegund_opts = [r[0] for r in con.execute(
-            f'SELECT DISTINCT "Tegund" FROM data WHERE "Tegund" IS NOT NULL ORDER BY "Tegund" LIMIT 300'
+            f'SELECT DISTINCT "Tegund" FROM data WHERE "Tegund" IS NOT NULL ORDER BY "Tegund"'
         ).fetchall()]
 
         buyer_opts = [r[0] for r in con.execute(
-            f'SELECT DISTINCT "Kaupandi" FROM data WHERE "Kaupandi" IS NOT NULL ORDER BY "Kaupandi" LIMIT 300'
+            f'SELECT DISTINCT "Kaupandi" FROM data WHERE "Kaupandi" IS NOT NULL ORDER BY "Kaupandi"'
         ).fetchall()]
 
         # Yearly totals for chart
         yearly = con.execute(
-            f'SELECT year, SUM({RIKID_AMOUNT}) FROM data {where} GROUP BY year ORDER BY year',
-            params,
+            f'SELECT year, SUM({RIKID_AMOUNT}) FROM data {chart_where} GROUP BY year ORDER BY year',
+            chart_params,
         ).fetchall()
 
         # Type breakdown (top 30)
         type_breakdown = con.execute(
             f'SELECT "Tegund", SUM({RIKID_AMOUNT}) AS s, COUNT(*) AS n '
             f'FROM data {where} GROUP BY "Tegund" ORDER BY s DESC LIMIT 30',
+            params,
+        ).fetchall()
+        buyer_breakdown = con.execute(
+            f'SELECT "Kaupandi", SUM({RIKID_AMOUNT}) AS s, COUNT(*) AS n '
+            f'FROM data {where} GROUP BY "Kaupandi" ORDER BY s DESC LIMIT 30',
+            params,
+        ).fetchall()
+        seller_breakdown = con.execute(
+            f'SELECT "Birgi", SUM({RIKID_AMOUNT}) AS s, COUNT(*) AS n '
+            f'FROM data {where} GROUP BY "Birgi" ORDER BY s DESC LIMIT 30',
             params,
         ).fetchall()
 
@@ -336,112 +350,186 @@ def create_app() -> Flask:
 
         total_count = tot[0] if tot else 0
         total_pages = max(1, math.ceil(total_count / limit))
+        active_filters = []
+        if year != "all":
+            active_filters.append({"label": "Ár", "value": str(year), "param": "year"})
+        if tegund != "all":
+            active_filters.append({"label": "Tegund", "value": tegund, "param": "tegund"})
+        if buyer != "all":
+            active_filters.append({"label": "Kaupandi", "value": buyer, "param": "buyer"})
 
         return render_template(
             "explorer.html",
             source="rikid",
             data_loaded=True,
             year=year, tegund=tegund, buyer=buyer,
-            years=years,
+            years=years_raw,
             tegund_opts=tegund_opts,
             buyer_opts=buyer_opts,
             yearly_labels=[str(r[0]) for r in yearly],
             yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
-            type_breakdown=type_breakdown,
+            breakdown_sections=[
+                {"title": "Sundurliðun eftir tegund (topp 30)", "label": "Tegund", "rows": type_breakdown, "filter_param": "tegund"},
+                {"title": "Sundurliðun eftir kaupanda (topp 30)", "label": "Kaupandi", "rows": buyer_breakdown, "filter_param": "buyer"},
+                {"title": "Sundurliðun eftir birgja (topp 30)", "label": "Birgi", "rows": seller_breakdown},
+            ],
             totals={"count": tot[0], "sum": tot[1], "pos": tot[2], "neg": tot[3]} if tot else {},
             preview_rows=preview_rows,
             preview_cols=["year", "Kaupandi", "Birgi", "Tegund", "amount", "Dags"],
             page=page, limit=limit, total_pages=total_pages,
+            active_filters=active_filters,
             dn=rikid_dn,
         )
 
     @app.route("/rikid/analysis")
     def rikid_analysis():
-        group_by = request.args.get("group_by", "Tegund")
-        year = request.args.get("year", "all")
+        focus = request.args.get("focus", request.args.get("group_by", "tegund"))
+        focus_value = request.args.get("focus_value", "all")
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
+        page = max(1, int(request.args.get("page", 1)))
+        offset = (page - 1) * limit
 
-        if group_by not in ("Tegund", "Kaupandi", "Birgi"):
-            group_by = "Tegund"
+        focus_col = "Tegund" if focus == "tegund" else "Kaupandi"
+        if focus not in ("tegund", "buyer"):
+            focus = "tegund"
+            focus_col = "Tegund"
 
         con = open_rikid_con(RIKID_DATA)
         if con is None:
             return render_template("analysis.html", source="rikid", data_loaded=False,
                                    error=f"Gögn finnast ekki: {RIKID_DATA}")
 
-        where, params = build_where([("year", year if year != "all" else None)])
-
-        # Add filter for corrections
+        where, params = build_where([(focus_col, focus_value if focus_value != "all" else None)])
         if not show_corrections:
             where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
-        years_all = [r[0] for r in con.execute(
-            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year"
+        focus_options = [r[0] for r in con.execute(
+            f'SELECT DISTINCT "{focus_col}" FROM data WHERE "{focus_col}" IS NOT NULL ORDER BY "{focus_col}"'
         ).fetchall()]
+        if focus_value != "all" and focus_value not in focus_options:
+            focus_value = "all"
 
-        # Yearly totals per group (pivot-style: one row per group, columns per year)
-        group_yearly = con.execute(
-            f'SELECT "{group_by}", year, SUM({RIKID_AMOUNT}) AS s '
-            f'FROM data WHERE "{group_by}" IS NOT NULL '
-            + (f'AND year = {int(year)} ' if year != "all" else "")
-            + f'GROUP BY "{group_by}", year ORDER BY "{group_by}", year',
+        yearly_selected = con.execute(
+            f"WITH yearly AS ("
+            f'  SELECT year, SUM({RIKID_AMOUNT}) AS s '
+            f"  FROM data {where} GROUP BY year"
+            f"), ch AS ("
+            f"  SELECT year, s, "
+            f"         CASE WHEN LAG(s) OVER (ORDER BY year) IS NULL OR LAG(s) OVER (ORDER BY year) = 0 THEN NULL "
+            f"              ELSE ((s - LAG(s) OVER (ORDER BY year)) / ABS(LAG(s) OVER (ORDER BY year))) * 100 END AS change_pct "
+            f"  FROM yearly"
+            f") "
+            f"SELECT year, s, change_pct FROM ch ORDER BY year",
+            params,
         ).fetchall()
 
-        # Aggregate into dict: {group: {year: total}}
-        pivot: dict[str, dict[int, float]] = {}
-        for grp, yr, s in group_yearly:
-            pivot.setdefault(grp, {})[yr] = float(s) if s is not None else 0.0
-
-        # Sort groups by total descending
-        group_totals = {g: sum(v.values()) for g, v in pivot.items()}
-        sorted_groups = sorted(pivot.keys(), key=lambda g: group_totals[g], reverse=True)[:limit]
-
-        # Column totals per year (for tfoot)
-        year_col_totals = {
-            y: sum(pivot[g].get(y, 0) for g in sorted_groups)
-            for y in years_all
-        }
-
-        # Overall yearly totals for chart
-        yearly = con.execute(
-            f'SELECT year, SUM({RIKID_AMOUNT}) FROM data GROUP BY year ORDER BY year'
+        avg_change = con.execute(
+            f"WITH gy AS ("
+            f'  SELECT "{focus_col}" AS g, year, SUM({RIKID_AMOUNT}) AS s '
+            f'  FROM data WHERE "{focus_col}" IS NOT NULL '
+            + ("AND (is_correction = FALSE OR is_correction IS NULL) " if not show_corrections else "")
+            + f'  GROUP BY "{focus_col}", year'
+            f"), ch AS ("
+            f"  SELECT g, year, "
+            f"         CASE WHEN LAG(s) OVER (PARTITION BY g ORDER BY year) IS NULL OR LAG(s) OVER (PARTITION BY g ORDER BY year) = 0 THEN NULL "
+            f"              ELSE ((s - LAG(s) OVER (PARTITION BY g ORDER BY year)) / ABS(LAG(s) OVER (PARTITION BY g ORDER BY year))) * 100 END AS change_pct "
+            f"  FROM gy"
+            f") "
+            f"SELECT year, AVG(change_pct) AS avg_change_pct "
+            f"FROM ch WHERE change_pct IS NOT NULL GROUP BY year ORDER BY year"
         ).fetchall()
+        avg_change_map = {int(r[0]): float(r[1]) for r in avg_change}
 
-        group_options = ["Tegund", "Kaupandi", "Birgi"]
-        years_raw = [r[0] for r in con.execute(
-            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
-        ).fetchall()]
-        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
+        change_rows = []
+        for yr, total, chg_pct in yearly_selected:
+            yr_i = int(yr)
+            chg_pct_f = float(chg_pct) if chg_pct is not None else None
+            avg_pct_f = avg_change_map.get(yr_i)
+            diff_pct = (chg_pct_f - avg_pct_f) if (chg_pct_f is not None and avg_pct_f is not None) else None
+            change_rows.append(
+                {
+                    "year": yr_i,
+                    "total_raw": float(total) if total is not None else 0.0,
+                    "total": fmt(total),
+                    "change_pct_raw": chg_pct_f,
+                    "change_pct": fmt_pct(chg_pct_f) if chg_pct_f is not None else "–",
+                    "avg_change_pct_raw": avg_pct_f,
+                    "avg_change_pct": fmt_pct(avg_pct_f) if avg_pct_f is not None else "–",
+                    "diff_pct_raw": diff_pct,
+                    "diff_pct": fmt_pct(diff_pct) if diff_pct is not None else "–",
+                }
+            )
+
+        rows = con.execute(
+            f'SELECT year, "Kaupandi", "Birgi", "Tegund", {RIKID_AMOUNT} AS amount, "Dags.greiðslu" '
+            f'FROM data {where} ORDER BY "Dags.greiðslu" DESC LIMIT {limit} OFFSET {offset}',
+            params,
+        ).fetchall()
+        preview_rows = [
+            {"year": r[0], "Kaupandi": r[1], "Birgi": r[2], "Tegund": r[3],
+             "amount_raw": r[4], "amount": fmt(r[4]), "Dags": str(r[5])[:10] if r[5] else ""}
+            for r in rows
+        ]
+
+        tot = con.execute(
+            f'SELECT COUNT(*) AS n FROM data {where}',
+            params,
+        ).fetchone()
+        total_count = int(tot[0]) if tot and tot[0] is not None else 0
+        total_pages = max(1, math.ceil(total_count / limit))
+
+        chart_years = [r["year"] for r in change_rows if r["change_pct_raw"] is not None]
+        chart_selected_change = [r["change_pct_raw"] for r in change_rows if r["change_pct_raw"] is not None]
+        chart_avg_change = [r["avg_change_pct_raw"] for r in change_rows if r["change_pct_raw"] is not None]
+        chart_diff = [r["diff_pct_raw"] for r in change_rows if r["change_pct_raw"] is not None]
+
+        latest = next((r for r in reversed(change_rows) if r["change_pct_raw"] is not None), None)
+
+        active_filters = []
+        if focus_value != "all":
+            active_filters.append({"label": rikid_dn(focus_col), "value": focus_value, "param": "focus_value"})
 
         return render_template(
             "analysis.html",
             source="rikid",
             data_loaded=True,
-            group_by=group_by, year=year,
-            group_options=group_options,
-            years_all=years_all,
-            years=years,
-            sorted_groups=sorted_groups,
-            pivot=pivot,
-            group_totals=group_totals,
-            year_col_totals=year_col_totals,
-            yearly_labels=[str(r[0]) for r in yearly],
-            yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
+            focus=focus,
+            focus_value=focus_value,
+            focus_label=rikid_dn(focus_col),
+            focus_options=focus_options,
+            chart_labels=[str(y) for y in chart_years],
+            chart_selected_change=chart_selected_change,
+            chart_avg_change=chart_avg_change,
+            chart_diff=chart_diff,
+            change_rows=change_rows,
+            latest=latest,
+            active_filters=active_filters,
+            preview_rows=preview_rows,
+            preview_cols=["year", "Kaupandi", "Birgi", "Tegund", "amount", "Dags"],
+            page=page, total_pages=total_pages,
             limit=limit,
             dn=rikid_dn,
         )
 
     @app.route("/rikid/anomalies")
     def rikid_anomalies():
+        focus = request.args.get("focus")
+        if not focus:
+            legacy_group = request.args.get("group_col", "Tegund")
+            focus = "buyer" if legacy_group in ("Kaupandi", "Birgi") else "tegund"
+        focus_value = request.args.get("focus_value", "all")
+        within_value = request.args.get("within_value", "all")
         year = request.args.get("year", "all")
-        group_col = request.args.get("group_col", "Tegund")
         direction = request.args.get("direction", "all")
-        min_change = request.args.get("min_change", "")
+        min_change_pct = request.args.get("min_change_pct", request.args.get("min_change", ""))
         limit = max(1, min(500, int(request.args.get("limit", 50))))
-
-        if group_col not in ("Tegund", "Kaupandi", "Birgi"):
-            group_col = "Tegund"
+        focus_col = "Tegund" if focus == "tegund" else "Kaupandi"
+        driver_col = "Kaupandi" if focus == "tegund" else "Tegund"
+        if focus not in ("tegund", "buyer"):
+            focus = "tegund"
+            focus_col = "Tegund"
+            driver_col = "Kaupandi"
 
         con_f = open_con(RIKID_ANOMALIES, "anomalies")
         con_a = open_con(RIKID_ANOMALIES_ALL, "anomalies_all")
@@ -454,60 +542,261 @@ def create_app() -> Flask:
         con = con_f or con_a
         view = "anomalies" if con_f else "anomalies_all"
 
-        clauses, params = [], []
+        focus_options = [r[0] for r in con.execute(
+            f'SELECT DISTINCT "{focus_col}" FROM {view} WHERE "{focus_col}" IS NOT NULL ORDER BY "{focus_col}"'
+        ).fetchall()]
+        if focus_value != "all" and focus_value not in focus_options:
+            focus_value = "all"
+
+        global_clauses, global_params = [], []
         if year != "all":
-            clauses.append("year = ?"); params.append(int(year))
-        if group_col:
-            clauses.append(f'"{group_col}" IS NOT NULL')
+            global_clauses.append("year = ?")
+            global_params.append(int(year))
         if direction == "up":
-            clauses.append("yoy_real_change > 0")
+            global_clauses.append("yoy_real_pct > 0")
         elif direction == "down":
-            clauses.append("yoy_real_change < 0")
-        if min_change:
+            global_clauses.append("yoy_real_pct < 0")
+        if min_change_pct:
             try:
-                clauses.append("ABS(yoy_real_change) >= ?"); params.append(float(min_change))
+                global_clauses.append("ABS(yoy_real_pct) >= ?")
+                global_params.append(float(min_change_pct))
             except ValueError:
-                pass
-        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+                min_change_pct = ""
+        global_where = "WHERE " + " AND ".join(global_clauses) if global_clauses else ""
+
+        scoped_clauses = list(global_clauses)
+        scoped_params = list(global_params)
+        if focus_value != "all":
+            scoped_clauses.append(f'"{focus_col}" = ?')
+            scoped_params.append(focus_value)
+        scoped_where = "WHERE " + " AND ".join(scoped_clauses) if scoped_clauses else ""
 
         years = [r[0] for r in con.execute(
             f"SELECT DISTINCT year FROM {view} WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
 
-        rows = con.execute(
-            f'SELECT "{group_col}", year, actual_real, prior_real, yoy_real_change, yoy_real_pct '
-            f'FROM {view} {where} ORDER BY ABS(yoy_real_change) DESC LIMIT {limit}',
-            params,
-        ).fetchall()
-
-        anomaly_rows = [
-            {
-                "group": r[0], "year": r[1],
-                "actual": fmt(r[2]), "prior": fmt(r[3]),
-                "change": fmt(r[4]), "pct": fmt_pct(r[5]),
-                "direction": "up" if (r[4] or 0) >= 0 else "down",
-            }
-            for r in rows
-        ]
-
-        # Yearly totals for overview chart (from main data if available)
-        con_main = open_rikid_con(RIKID_DATA)
-        yearly = []
-        if con_main:
-            yearly = con_main.execute(
-                f'SELECT year, SUM({RIKID_AMOUNT}) FROM data GROUP BY year ORDER BY year'
+        def score_by_col(col: str, where_sql: str, where_params: list, top_n: int = 15) -> list[dict]:
+            out = con.execute(
+                f"WITH agg AS ("
+                f'  SELECT "{col}" AS g, year, '
+                f"         SUM(actual_real) AS actual_real, "
+                f"         SUM(prior_real) AS prior_real, "
+                f"         SUM(yoy_real_change) AS yoy_real_change "
+                f"  FROM (SELECT * FROM {view} {where_sql}) t "
+                f'  WHERE "{col}" IS NOT NULL '
+                f"  GROUP BY g, year"
+                f"), score AS ("
+                f"  SELECT g, "
+                f"         COUNT(*) AS years_flagged, "
+                f"         SUM(ABS(yoy_real_change)) AS abs_change_sum, "
+                f"         MAX(ABS(CASE WHEN prior_real = 0 OR prior_real IS NULL THEN NULL "
+                f"                      ELSE (yoy_real_change / ABS(prior_real)) * 100 END)) AS max_abs_pct "
+                f"  FROM agg GROUP BY g"
+                f") "
+                f"SELECT g, years_flagged, abs_change_sum, max_abs_pct "
+                f"FROM score ORDER BY abs_change_sum DESC NULLS LAST LIMIT {top_n}",
+                where_params,
             ).fetchall()
+            return [
+                {
+                    "group": r[0],
+                    "years_flagged": int(r[1]) if r[1] is not None else 0,
+                    "avg_change_amount": fmt((float(r[2]) / float(r[1])) if (r[1] not in (None, 0) and r[2] is not None) else None),
+                    "abs_change_sum": fmt(r[2]),
+                    "max_abs_pct": fmt_pct(r[3]),
+                }
+                for r in out
+            ]
+
+        overview_mode = focus_value == "all"
+        if overview_mode:
+            within_value = "all"
+        if overview_mode:
+            summary_rows = []
+            anomaly_rows = []
+            overall_buyer_rows = score_by_col("Kaupandi", global_where, global_params, 20)
+            overall_type_rows = score_by_col("Tegund", global_where, global_params, 20)
+            row_label = ""
+            context_rows = []
+        else:
+            overall_buyer_rows = []
+            overall_type_rows = []
+            summary_rows = score_by_col(driver_col, scoped_where, scoped_params, 15)
+            valid_within = {r["group"] for r in summary_rows if r.get("group")}
+            if within_value != "all" and within_value not in valid_within:
+                within_value = "all"
+            row_label = rikid_dn(driver_col)
+            detail_clauses = list(scoped_clauses)
+            detail_params = list(scoped_params)
+            if within_value != "all":
+                detail_clauses.append(f'"{driver_col}" = ?')
+                detail_params.append(within_value)
+            detail_where = "WHERE " + " AND ".join(detail_clauses) if detail_clauses else ""
+            rows = con.execute(
+                f"WITH agg AS ("
+                f'  SELECT "{driver_col}" AS g, year, '
+                f"         SUM(actual_real) AS actual_real, "
+                f"         SUM(prior_real) AS prior_real, "
+                f"         SUM(yoy_real_change) AS yoy_real_change "
+                f"  FROM (SELECT * FROM {view} {detail_where}) t "
+                f'  WHERE "{driver_col}" IS NOT NULL '
+                f"  GROUP BY g, year"
+                f") "
+                f"SELECT g, year, actual_real, prior_real, yoy_real_change, "
+                f"       CASE WHEN prior_real = 0 OR prior_real IS NULL THEN NULL "
+                f"            ELSE (yoy_real_change / ABS(prior_real)) * 100 END AS yoy_real_pct "
+                f"FROM agg "
+                f"ORDER BY ABS(yoy_real_pct) DESC NULLS LAST LIMIT {limit}",
+                detail_params,
+            ).fetchall()
+            anomaly_rows = [
+                {
+                    "group": r[0], "year": r[1],
+                    "period": f"{int(r[1]) - 1} → {int(r[1])}" if r[1] is not None else "–",
+                    "actual": fmt(r[2]), "prior": fmt(r[3]),
+                    "change": fmt(r[4]), "pct": fmt_pct(r[5]),
+                    "direction": "up" if (r[4] or 0) >= 0 else "down",
+                }
+                for r in rows
+            ]
+
+            anomaly_count_rows = con.execute(
+                f'SELECT "{driver_col}" AS g, COUNT(DISTINCT year) AS n_anom_years '
+                f"FROM (SELECT * FROM {view} {scoped_where}) t "
+                f'WHERE "{driver_col}" IS NOT NULL '
+                f'GROUP BY "{driver_col}"',
+                scoped_params,
+            ).fetchall()
+            anomaly_count_map = {str(r[0]): int(r[1]) for r in anomaly_count_rows if r[0] is not None}
+
+            con_main = open_rikid_con(RIKID_DATA)
+            if con_main is not None:
+                main_clauses = [f'"{focus_col}" = ?', "(is_correction = FALSE OR is_correction IS NULL)"]
+                main_params = [focus_value]
+                if year != "all":
+                    main_clauses.append("year = ?")
+                    main_params.append(int(year))
+                main_where = "WHERE " + " AND ".join(main_clauses)
+                context_raw = con_main.execute(
+                    f'SELECT "{driver_col}" AS g, '
+                    f'SUM({RIKID_AMOUNT}) AS total_amount, '
+                    f'COUNT(DISTINCT year) AS years_with_spend '
+                    f'FROM data {main_where} '
+                    f'AND "{driver_col}" IS NOT NULL '
+                    f'GROUP BY "{driver_col}" '
+                    f'ORDER BY ABS(total_amount) DESC LIMIT 30',
+                    main_params,
+                ).fetchall()
+                context_rows = [
+                    {
+                        "group": r[0],
+                        "total_amount": fmt(r[1]),
+                        "years_with_spend": int(r[2]) if r[2] is not None else 0,
+                        "anomaly_years": anomaly_count_map.get(str(r[0]), 0),
+                        "is_selected": within_value != "all" and r[0] == within_value,
+                    }
+                    for r in context_raw
+                ]
+            else:
+                context_rows = []
+
+        con_main = open_rikid_con(RIKID_DATA)
+        if con_main is not None:
+            year_domain = [int(r[0]) for r in con_main.execute(
+                "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year"
+            ).fetchall()]
+            main_clauses = ["(is_correction = FALSE OR is_correction IS NULL)"]
+            main_params: list = []
+            if not overview_mode:
+                main_clauses.append(f'"{focus_col}" = ?')
+                main_params.append(focus_value)
+                if within_value != "all":
+                    main_clauses.append(f'"{driver_col}" = ?')
+                    main_params.append(within_value)
+            main_where = "WHERE " + " AND ".join(main_clauses)
+            yearly_main = con_main.execute(
+                f"SELECT year, SUM({RIKID_AMOUNT}) AS s FROM data {main_where} GROUP BY year ORDER BY year",
+                main_params,
+            ).fetchall()
+            yearly_amount_map = {int(r[0]): float(r[1]) if r[1] is not None else 0.0 for r in yearly_main}
+        else:
+            year_domain = [int(r[0]) for r in con.execute(
+                f"SELECT DISTINCT year FROM {view} WHERE year IS NOT NULL ORDER BY year"
+            ).fetchall()]
+            yearly_amount_map = {y: 0.0 for y in year_domain}
+
+        yearly_values, yearly_change_pct = [], []
+        prev_amount = None
+        for y in year_domain:
+            cur = yearly_amount_map.get(y, 0.0)
+            yearly_values.append(cur)
+            if prev_amount is None or prev_amount == 0:
+                yearly_change_pct.append(None)
+            else:
+                yearly_change_pct.append(((cur - prev_amount) / abs(prev_amount)) * 100)
+            prev_amount = cur
+
+        anomaly_clauses, anomaly_params = [], []
+        if direction == "up":
+            anomaly_clauses.append("yoy_real_pct > 0")
+        elif direction == "down":
+            anomaly_clauses.append("yoy_real_pct < 0")
+        if min_change_pct:
+            try:
+                anomaly_clauses.append("ABS(yoy_real_pct) >= ?")
+                anomaly_params.append(float(min_change_pct))
+            except ValueError:
+                pass
+        if not overview_mode:
+            anomaly_clauses.append(f'"{focus_col}" = ?')
+            anomaly_params.append(focus_value)
+            if within_value != "all":
+                anomaly_clauses.append(f'"{driver_col}" = ?')
+                anomaly_params.append(within_value)
+        anomaly_where = "WHERE " + " AND ".join(anomaly_clauses) if anomaly_clauses else ""
+        anomaly_years = {
+            int(r[0]) for r in con.execute(
+                f"SELECT DISTINCT year FROM {view} {anomaly_where}",
+                anomaly_params,
+            ).fetchall()
+            if r[0] is not None
+        }
+        anomaly_flags = [y in anomaly_years for y in year_domain]
+
+        active_filters = []
+        if focus_value != "all":
+            active_filters.append({"label": rikid_dn(focus_col), "value": focus_value, "param": "focus_value"})
+        if within_value != "all":
+            active_filters.append({"label": rikid_dn(driver_col), "value": within_value, "param": "within_value"})
+        if year != "all":
+            active_filters.append({"label": "Ár", "value": str(year), "param": "year"})
+        if direction != "all":
+            active_filters.append({"label": "Stefna", "value": "Hækkun" if direction == "up" else "Lækkun", "param": "direction"})
+        if min_change_pct:
+            active_filters.append({"label": "Lágmarks breyting (%)", "value": str(min_change_pct), "param": "min_change_pct"})
 
         return render_template(
             "anomalies.html",
             source="rikid",
             data_loaded=True,
-            year=year, group_col=group_col, direction=direction, min_change=min_change,
+            focus=focus, focus_value=focus_value, focus_label=rikid_dn(focus_col),
+            driver_label=rikid_dn(driver_col),
+            within_value=within_value,
+            row_label=row_label,
+            overview_mode=overview_mode,
+            focus_options=focus_options,
+            year=year, direction=direction, min_change_pct=min_change_pct,
             years=years,
-            group_options=["Tegund", "Kaupandi", "Birgi"],
+            active_filters=active_filters,
+            summary_rows=summary_rows,
+            context_rows=context_rows,
+            overall_buyer_rows=overall_buyer_rows,
+            overall_type_rows=overall_type_rows,
             anomaly_rows=anomaly_rows,
-            yearly_labels=[str(r[0]) for r in yearly],
-            yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
+            yearly_labels=[str(y) for y in year_domain],
+            yearly_values=yearly_values,
+            yearly_avg_abs_pct=yearly_change_pct,
+            anomaly_flags=anomaly_flags,
             limit=limit,
             dn=rikid_dn,
         )
@@ -601,8 +890,8 @@ def create_app() -> Flask:
     @app.route("/reykjavik/")
     def rkv_explorer():
         year = request.args.get("year", "all")
-        tegund0 = request.args.get("tegund0", "all")
-        samtala0 = request.args.get("samtala0", "all")
+        tegund0 = request.args.get("tegund", request.args.get("tegund0", "all"))
+        samtala0 = request.args.get("buyer", request.args.get("samtala0", "all"))
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
         page = max(1, int(request.args.get("page", 1)))
@@ -618,34 +907,48 @@ def create_app() -> Flask:
             ("tegund0", tegund0 if tegund0 != "all" else None),
             ("samtala0", samtala0 if samtala0 != "all" else None),
         ])
+        chart_where, chart_params = build_where([
+            ("tegund0", tegund0 if tegund0 != "all" else None),
+            ("samtala0", samtala0 if samtala0 != "all" else None),
+        ])
 
         # Add filter for corrections
         if not show_corrections:
             where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+            chart_where += " AND (is_correction = FALSE OR is_correction IS NULL)" if chart_where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
 
         years_raw = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
-        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
 
         tegund0_opts = [r[0] for r in con.execute(
-            "SELECT DISTINCT tegund0 FROM data WHERE tegund0 IS NOT NULL ORDER BY tegund0 LIMIT 200"
+            "SELECT DISTINCT tegund0 FROM data WHERE tegund0 IS NOT NULL ORDER BY tegund0"
         ).fetchall()]
 
         samtala0_opts = [r[0] for r in con.execute(
-            "SELECT DISTINCT samtala0 FROM data WHERE samtala0 IS NOT NULL ORDER BY samtala0 LIMIT 200"
+            "SELECT DISTINCT samtala0 FROM data WHERE samtala0 IS NOT NULL ORDER BY samtala0"
         ).fetchall()]
 
         # Yearly totals
         yearly = con.execute(
-            f"SELECT year, SUM({RKV_AMOUNT_EXPR}) FROM data {where} GROUP BY year ORDER BY year",
-            params,
+            f"SELECT year, SUM({RKV_AMOUNT_EXPR}) FROM data {chart_where} GROUP BY year ORDER BY year",
+            chart_params,
         ).fetchall()
 
         # Expense type breakdown (tegund0)
         type_breakdown = con.execute(
             f"SELECT tegund0, SUM({RKV_AMOUNT_EXPR}) AS s, COUNT(*) AS n "
             f"FROM data {where} GROUP BY tegund0 ORDER BY s DESC LIMIT 30",
+            params,
+        ).fetchall()
+        buyer_breakdown = con.execute(
+            f"SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS s, COUNT(*) AS n "
+            f"FROM data {where} GROUP BY samtala0 ORDER BY s DESC LIMIT 30",
+            params,
+        ).fetchall()
+        seller_breakdown = con.execute(
+            f"SELECT fyrirtaeki, SUM({RKV_AMOUNT_EXPR}) AS s, COUNT(*) AS n "
+            f"FROM data {where} GROUP BY fyrirtaeki ORDER BY s DESC LIMIT 30",
             params,
         ).fetchall()
 
@@ -672,106 +975,188 @@ def create_app() -> Flask:
 
         total_count = tot[0] if tot else 0
         total_pages = max(1, math.ceil(total_count / limit))
+        active_filters = []
+        if year != "all":
+            active_filters.append({"label": "Ár", "value": str(year), "param": "year"})
+        if tegund0 != "all":
+            active_filters.append({"label": "Tegundaflokkur", "value": tegund0, "param": "tegund"})
+        if samtala0 != "all":
+            active_filters.append({"label": "Svið", "value": samtala0, "param": "buyer"})
 
         return render_template(
             "explorer.html",
             source="reykjavik",
             data_loaded=True,
             year=year, tegund=tegund0, buyer=samtala0,
-            years=years,
+            years=years_raw,
             tegund_opts=tegund0_opts,
             buyer_opts=samtala0_opts,
             tegund_label="Tegundaflokkur",
             buyer_label="Svið (stofnun)",
             yearly_labels=[str(r[0]) for r in yearly],
             yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
-            type_breakdown=type_breakdown,
+            breakdown_sections=[
+                {"title": "Sundurliðun eftir tegund (topp 30)", "label": "Tegund", "rows": type_breakdown, "filter_param": "tegund"},
+                {"title": "Sundurliðun eftir kaupanda (topp 30)", "label": "Svið", "rows": buyer_breakdown, "filter_param": "buyer"},
+                {"title": "Sundurliðun eftir seljanda (topp 30)", "label": "Fyrirtæki", "rows": seller_breakdown},
+            ],
             totals={"count": tot[0], "sum": tot[1], "pos": tot[2], "neg": tot[3]} if tot else {},
             preview_rows=preview_rows,
             preview_cols=["year", "samtala0", "samtala1", "tegund0", "tegund1", "raun", "fyrirtaeki"],
             page=page, limit=limit, total_pages=total_pages,
+            active_filters=active_filters,
             dn=rkv_dn,
         )
 
     @app.route("/reykjavik/analysis")
     def rkv_analysis():
-        group_by = request.args.get("group_by", "tegund0")
-        year = request.args.get("year", "all")
+        focus = request.args.get("focus", request.args.get("group_by", "tegund"))
+        focus_value = request.args.get("focus_value", "all")
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
+        page = max(1, int(request.args.get("page", 1)))
+        offset = (page - 1) * limit
 
-        valid_groups = RKV_TYPE_COLS + RKV_ORG_COLS
-        if group_by not in valid_groups:
-            group_by = "tegund0"
+        focus_col = "tegund0" if focus == "tegund" else "samtala0"
+        if focus not in ("tegund", "buyer"):
+            focus = "tegund"
+            focus_col = "tegund0"
 
         con = open_con(REYKJAVIK_DATA)
         if con is None:
             return render_template("analysis.html", source="reykjavik", data_loaded=False,
                                    error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
 
-        years_all = [r[0] for r in con.execute(
-            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year"
+        where, params = build_where([(focus_col, focus_value if focus_value != "all" else None)])
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+
+        focus_options = [r[0] for r in con.execute(
+            f'SELECT DISTINCT "{focus_col}" FROM data WHERE "{focus_col}" IS NOT NULL ORDER BY "{focus_col}"'
         ).fetchall()]
+        if focus_value != "all" and focus_value not in focus_options:
+            focus_value = "all"
 
-        years_raw = [r[0] for r in con.execute(
-            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
-        ).fetchall()]
-        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
-
-        year_filter = f"AND year = {int(year)}" if year != "all" else ""
-        correction_filter = "" if show_corrections else "AND (is_correction = FALSE OR is_correction IS NULL)"
-
-        group_yearly = con.execute(
-            f"SELECT \"{group_by}\", year, SUM({RKV_AMOUNT_EXPR}) AS s "
-            f'FROM data WHERE "{group_by}" IS NOT NULL {year_filter} {correction_filter} '
-            f'GROUP BY "{group_by}", year ORDER BY "{group_by}", year'
+        yearly_selected = con.execute(
+            f"WITH yearly AS ("
+            f"  SELECT year, SUM({RKV_AMOUNT_EXPR}) AS s "
+            f"  FROM data {where} GROUP BY year"
+            f"), ch AS ("
+            f"  SELECT year, s, "
+            f"         CASE WHEN LAG(s) OVER (ORDER BY year) IS NULL OR LAG(s) OVER (ORDER BY year) = 0 THEN NULL "
+            f"              ELSE ((s - LAG(s) OVER (ORDER BY year)) / ABS(LAG(s) OVER (ORDER BY year))) * 100 END AS change_pct "
+            f"  FROM yearly"
+            f") "
+            f"SELECT year, s, change_pct FROM ch ORDER BY year",
+            params,
         ).fetchall()
 
-        pivot: dict[str, dict[int, float]] = {}
-        for grp, yr, s in group_yearly:
-            pivot.setdefault(grp, {})[yr] = float(s) if s is not None else 0.0
-
-        group_totals = {g: sum(v.values()) for g, v in pivot.items()}
-        sorted_groups = sorted(pivot.keys(), key=lambda g: group_totals[g], reverse=True)[:limit]
-
-        yearly = con.execute(
-            f"SELECT year, SUM({RKV_AMOUNT_EXPR}) FROM data GROUP BY year ORDER BY year"
+        avg_change = con.execute(
+            f"WITH gy AS ("
+            f'  SELECT "{focus_col}" AS g, year, SUM({RKV_AMOUNT_EXPR}) AS s '
+            f'  FROM data WHERE "{focus_col}" IS NOT NULL '
+            + ("AND (is_correction = FALSE OR is_correction IS NULL) " if not show_corrections else "")
+            + f'  GROUP BY "{focus_col}", year'
+            f"), ch AS ("
+            f"  SELECT g, year, "
+            f"         CASE WHEN LAG(s) OVER (PARTITION BY g ORDER BY year) IS NULL OR LAG(s) OVER (PARTITION BY g ORDER BY year) = 0 THEN NULL "
+            f"              ELSE ((s - LAG(s) OVER (PARTITION BY g ORDER BY year)) / ABS(LAG(s) OVER (PARTITION BY g ORDER BY year))) * 100 END AS change_pct "
+            f"  FROM gy"
+            f") "
+            f"SELECT year, AVG(change_pct) AS avg_change_pct "
+            f"FROM ch WHERE change_pct IS NOT NULL GROUP BY year ORDER BY year"
         ).fetchall()
+        avg_change_map = {int(r[0]): float(r[1]) for r in avg_change}
 
-        year_col_totals = {
-            y: sum(pivot[g].get(y, 0) for g in sorted_groups)
-            for y in years_all
-        }
+        change_rows = []
+        for yr, total, chg_pct in yearly_selected:
+            yr_i = int(yr)
+            chg_pct_f = float(chg_pct) if chg_pct is not None else None
+            avg_pct_f = avg_change_map.get(yr_i)
+            diff_pct = (chg_pct_f - avg_pct_f) if (chg_pct_f is not None and avg_pct_f is not None) else None
+            change_rows.append(
+                {
+                    "year": yr_i,
+                    "total_raw": float(total) if total is not None else 0.0,
+                    "total": fmt(total),
+                    "change_pct_raw": chg_pct_f,
+                    "change_pct": fmt_pct(chg_pct_f) if chg_pct_f is not None else "–",
+                    "avg_change_pct_raw": avg_pct_f,
+                    "avg_change_pct": fmt_pct(avg_pct_f) if avg_pct_f is not None else "–",
+                    "diff_pct_raw": diff_pct,
+                    "diff_pct": fmt_pct(diff_pct) if diff_pct is not None else "–",
+                }
+            )
+
+        rows = con.execute(
+            f"SELECT year, samtala0, samtala1, tegund0, tegund1, raun, fyrirtaeki "
+            f"FROM data {where} LIMIT {limit} OFFSET {offset}",
+            params,
+        ).fetchall()
+        preview_rows = [
+            {"year": r[0], "samtala0": r[1], "samtala1": r[2],
+             "tegund0": r[3], "tegund1": r[4], "raun": r[5], "fyrirtaeki": r[6]}
+            for r in rows
+        ]
+
+        tot = con.execute(
+            f"SELECT COUNT(*) AS n FROM data {where}",
+            params,
+        ).fetchone()
+        total_count = int(tot[0]) if tot and tot[0] is not None else 0
+        total_pages = max(1, math.ceil(total_count / limit))
+
+        chart_years = [r["year"] for r in change_rows if r["change_pct_raw"] is not None]
+        chart_selected_change = [r["change_pct_raw"] for r in change_rows if r["change_pct_raw"] is not None]
+        chart_avg_change = [r["avg_change_pct_raw"] for r in change_rows if r["change_pct_raw"] is not None]
+        chart_diff = [r["diff_pct_raw"] for r in change_rows if r["change_pct_raw"] is not None]
+
+        latest = next((r for r in reversed(change_rows) if r["change_pct_raw"] is not None), None)
+        active_filters = []
+        if focus_value != "all":
+            active_filters.append({"label": rkv_dn(focus_col), "value": focus_value, "param": "focus_value"})
 
         return render_template(
             "analysis.html",
             source="reykjavik",
             data_loaded=True,
-            group_by=group_by, year=year,
-            group_options=valid_groups,
-            years_all=years_all,
-            years=years,
-            sorted_groups=sorted_groups,
-            pivot=pivot,
-            group_totals=group_totals,
-            year_col_totals=year_col_totals,
-            yearly_labels=[str(r[0]) for r in yearly],
-            yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
+            focus=focus,
+            focus_value=focus_value,
+            focus_label=rkv_dn(focus_col),
+            focus_options=focus_options,
+            chart_labels=[str(y) for y in chart_years],
+            chart_selected_change=chart_selected_change,
+            chart_avg_change=chart_avg_change,
+            chart_diff=chart_diff,
+            change_rows=change_rows,
+            latest=latest,
+            active_filters=active_filters,
+            preview_rows=preview_rows,
+            preview_cols=["year", "samtala0", "samtala1", "tegund0", "tegund1", "raun", "fyrirtaeki"],
+            page=page, total_pages=total_pages,
             limit=limit,
             dn=rkv_dn,
         )
 
     @app.route("/reykjavik/anomalies")
     def rkv_anomalies():
+        focus = request.args.get("focus")
+        if not focus:
+            legacy_group = request.args.get("group_col", "tegund0")
+            focus = "buyer" if legacy_group in RKV_ORG_COLS else "tegund"
+        focus_value = request.args.get("focus_value", "all")
+        within_value = request.args.get("within_value", "all")
         year = request.args.get("year", "all")
-        group_col = request.args.get("group_col", "tegund0")
         direction = request.args.get("direction", "all")
-        min_change = request.args.get("min_change", "")
+        min_change_pct = request.args.get("min_change_pct", request.args.get("min_change", ""))
         limit = max(1, min(500, int(request.args.get("limit", 50))))
 
-        valid_groups = RKV_TYPE_COLS + RKV_ORG_COLS
-        if group_col not in valid_groups:
-            group_col = "tegund0"
+        focus_col = "tegund0" if focus == "tegund" else "samtala0"
+        driver_col = "samtala0" if focus == "tegund" else "tegund0"
+        if focus not in ("tegund", "buyer"):
+            focus = "tegund"
+            focus_col = "tegund0"
+            driver_col = "samtala0"
 
         con_f = open_con(REYKJAVIK_ANOMALIES, "anomalies")
         con_a = open_con(REYKJAVIK_ANOMALIES_ALL, "anomalies_all")
@@ -783,70 +1168,276 @@ def create_app() -> Flask:
         con = con_f or con_a
         view = "anomalies" if con_f else "anomalies_all"
 
-        clauses, params = [], []
+        cols_in_view = [r[1] for r in con.execute(f"PRAGMA table_info('{view}')").fetchall()]
+        if focus_col not in cols_in_view:
+            preferred = RKV_TYPE_COLS if focus == "tegund" else RKV_ORG_COLS
+            for c in preferred:
+                if c in cols_in_view:
+                    focus_col = c
+                    break
+        if driver_col not in cols_in_view:
+            preferred_driver = RKV_ORG_COLS if focus == "tegund" else RKV_TYPE_COLS
+            for c in preferred_driver:
+                if c in cols_in_view:
+                    driver_col = c
+                    break
+
+        focus_options = [r[0] for r in con.execute(
+            f'SELECT DISTINCT "{focus_col}" FROM {view} WHERE "{focus_col}" IS NOT NULL ORDER BY "{focus_col}"'
+        ).fetchall()]
+        if focus_value != "all" and focus_value not in focus_options:
+            focus_value = "all"
+
+        global_clauses, global_params = [], []
         if year != "all":
-            clauses.append("year = ?"); params.append(int(year))
-        if group_col:
-            clauses.append(f'"{group_col}" IS NOT NULL')
+            global_clauses.append("year = ?")
+            global_params.append(int(year))
         if direction == "up":
-            clauses.append("yoy_real_change > 0")
+            global_clauses.append("yoy_real_pct > 0")
         elif direction == "down":
-            clauses.append("yoy_real_change < 0")
-        if min_change:
+            global_clauses.append("yoy_real_pct < 0")
+        if min_change_pct:
             try:
-                clauses.append("ABS(yoy_real_change) >= ?"); params.append(float(min_change))
+                global_clauses.append("ABS(yoy_real_pct) >= ?")
+                global_params.append(float(min_change_pct))
             except ValueError:
-                pass
-        where = "WHERE " + " AND ".join(clauses) if clauses else ""
+                min_change_pct = ""
+        global_where = "WHERE " + " AND ".join(global_clauses) if global_clauses else ""
+
+        scoped_clauses = list(global_clauses)
+        scoped_params = list(global_params)
+        if focus_value != "all":
+            scoped_clauses.append(f'"{focus_col}" = ?')
+            scoped_params.append(focus_value)
+        scoped_where = "WHERE " + " AND ".join(scoped_clauses) if scoped_clauses else ""
 
         years_raw = [r[0] for r in con.execute(
             f"SELECT DISTINCT year FROM {view} WHERE year IS NOT NULL ORDER BY year DESC"
         ).fetchall()]
-        years = [str(y) + ("*" if i == 0 else "") for i, y in enumerate(years_raw)]
+        years = [str(y) for y in years_raw]
 
-        # Find which group column is actually in the anomalies parquet
-        cols_in_view = [r[0] for r in con.execute(f"PRAGMA table_info('{view}')").fetchall()]
-        # Fallback if group_col not in anomalies
-        if group_col not in cols_in_view:
-            # Try to find a matching column
-            for candidate in valid_groups:
-                if candidate in cols_in_view:
-                    group_col = candidate
-                    break
+        def score_by_col(col: str, where_sql: str, where_params: list, top_n: int = 15) -> list[dict]:
+            out = con.execute(
+                f"WITH agg AS ("
+                f'  SELECT "{col}" AS g, year, '
+                f"         SUM(actual_real) AS actual_real, "
+                f"         SUM(prior_real) AS prior_real, "
+                f"         SUM(yoy_real_change) AS yoy_real_change "
+                f"  FROM (SELECT * FROM {view} {where_sql}) t "
+                f'  WHERE "{col}" IS NOT NULL '
+                f"  GROUP BY g, year"
+                f"), score AS ("
+                f"  SELECT g, "
+                f"         COUNT(*) AS years_flagged, "
+                f"         SUM(ABS(yoy_real_change)) AS abs_change_sum, "
+                f"         MAX(ABS(CASE WHEN prior_real = 0 OR prior_real IS NULL THEN NULL "
+                f"                      ELSE (yoy_real_change / ABS(prior_real)) * 100 END)) AS max_abs_pct "
+                f"  FROM agg GROUP BY g"
+                f") "
+                f"SELECT g, years_flagged, abs_change_sum, max_abs_pct "
+                f"FROM score ORDER BY abs_change_sum DESC NULLS LAST LIMIT {top_n}",
+                where_params,
+            ).fetchall()
+            return [
+                {
+                    "group": r[0],
+                    "years_flagged": int(r[1]) if r[1] is not None else 0,
+                    "avg_change_amount": fmt((float(r[2]) / float(r[1])) if (r[1] not in (None, 0) and r[2] is not None) else None),
+                    "abs_change_sum": fmt(r[2]),
+                    "max_abs_pct": fmt_pct(r[3]),
+                }
+                for r in out
+            ]
 
-        rows = con.execute(
-            f'SELECT "{group_col}", year, actual_real, prior_real, yoy_real_change, yoy_real_pct '
-            f'FROM {view} {where} ORDER BY ABS(yoy_real_change) DESC LIMIT {limit}',
-            params,
-        ).fetchall()
+        overview_mode = focus_value == "all"
+        if overview_mode:
+            within_value = "all"
+        if overview_mode:
+            summary_rows = []
+            anomaly_rows = []
+            overall_buyer_rows = score_by_col("samtala0", global_where, global_params, 20)
+            overall_type_rows = score_by_col("tegund0", global_where, global_params, 20)
+            row_label = ""
+            context_rows = []
+        else:
+            overall_buyer_rows = []
+            overall_type_rows = []
+            summary_rows = score_by_col(driver_col, scoped_where, scoped_params, 15)
+            valid_within = {r["group"] for r in summary_rows if r.get("group")}
+            if within_value != "all" and within_value not in valid_within:
+                within_value = "all"
+            row_label = rkv_dn(driver_col)
+            detail_clauses = list(scoped_clauses)
+            detail_params = list(scoped_params)
+            if within_value != "all":
+                detail_clauses.append(f'"{driver_col}" = ?')
+                detail_params.append(within_value)
+            detail_where = "WHERE " + " AND ".join(detail_clauses) if detail_clauses else ""
+            rows = con.execute(
+                f"WITH agg AS ("
+                f'  SELECT "{driver_col}" AS g, year, '
+                f"         SUM(actual_real) AS actual_real, "
+                f"         SUM(prior_real) AS prior_real, "
+                f"         SUM(yoy_real_change) AS yoy_real_change "
+                f"  FROM (SELECT * FROM {view} {detail_where}) t "
+                f'  WHERE "{driver_col}" IS NOT NULL '
+                f"  GROUP BY g, year"
+                f") "
+                f"SELECT g, year, actual_real, prior_real, yoy_real_change, "
+                f"       CASE WHEN prior_real = 0 OR prior_real IS NULL THEN NULL "
+                f"            ELSE (yoy_real_change / ABS(prior_real)) * 100 END AS yoy_real_pct "
+                f"FROM agg "
+                f"ORDER BY ABS(yoy_real_pct) DESC NULLS LAST LIMIT {limit}",
+                detail_params,
+            ).fetchall()
+            anomaly_rows = [
+                {
+                    "group": r[0], "year": r[1],
+                    "period": f"{int(r[1]) - 1} → {int(r[1])}" if r[1] is not None else "–",
+                    "actual": fmt(r[2]), "prior": fmt(r[3]),
+                    "change": fmt(r[4]), "pct": fmt_pct(r[5]),
+                    "direction": "up" if (r[4] or 0) >= 0 else "down",
+                }
+                for r in rows
+            ]
 
-        anomaly_rows = [
-            {
-                "group": r[0], "year": r[1],
-                "actual": fmt(r[2]), "prior": fmt(r[3]),
-                "change": fmt(r[4]), "pct": fmt_pct(r[5]),
-                "direction": "up" if (r[4] or 0) >= 0 else "down",
-            }
-            for r in rows
-        ]
+            anomaly_count_rows = con.execute(
+                f'SELECT "{driver_col}" AS g, COUNT(DISTINCT year) AS n_anom_years '
+                f"FROM (SELECT * FROM {view} {scoped_where}) t "
+                f'WHERE "{driver_col}" IS NOT NULL '
+                f'GROUP BY "{driver_col}"',
+                scoped_params,
+            ).fetchall()
+            anomaly_count_map = {str(r[0]): int(r[1]) for r in anomaly_count_rows if r[0] is not None}
+
+            con_main = open_con(REYKJAVIK_DATA)
+            if con_main is not None:
+                main_clauses = [f'"{focus_col}" = ?', "(is_correction = FALSE OR is_correction IS NULL)"]
+                main_params = [focus_value]
+                if year != "all":
+                    main_clauses.append("year = ?")
+                    main_params.append(int(year))
+                main_where = "WHERE " + " AND ".join(main_clauses)
+                context_raw = con_main.execute(
+                    f'SELECT "{driver_col}" AS g, '
+                    f'SUM({RKV_AMOUNT_EXPR}) AS total_amount, '
+                    f'COUNT(DISTINCT year) AS years_with_spend '
+                    f'FROM data {main_where} '
+                    f'AND "{driver_col}" IS NOT NULL '
+                    f'GROUP BY "{driver_col}" '
+                    f'ORDER BY ABS(total_amount) DESC LIMIT 30',
+                    main_params,
+                ).fetchall()
+                context_rows = [
+                    {
+                        "group": r[0],
+                        "total_amount": fmt(r[1]),
+                        "years_with_spend": int(r[2]) if r[2] is not None else 0,
+                        "anomaly_years": anomaly_count_map.get(str(r[0]), 0),
+                        "is_selected": within_value != "all" and r[0] == within_value,
+                    }
+                    for r in context_raw
+                ]
+            else:
+                context_rows = []
 
         con_main = open_con(REYKJAVIK_DATA)
-        yearly = []
-        if con_main:
-            yearly = con_main.execute(
-                f"SELECT year, SUM({RKV_AMOUNT_EXPR}) FROM data GROUP BY year ORDER BY year"
+        if con_main is not None:
+            year_domain = [int(r[0]) for r in con_main.execute(
+                "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year"
+            ).fetchall()]
+            main_clauses = ["(is_correction = FALSE OR is_correction IS NULL)"]
+            main_params: list = []
+            if not overview_mode:
+                main_clauses.append(f'"{focus_col}" = ?')
+                main_params.append(focus_value)
+                if within_value != "all":
+                    main_clauses.append(f'"{driver_col}" = ?')
+                    main_params.append(within_value)
+            main_where = "WHERE " + " AND ".join(main_clauses)
+            yearly_main = con_main.execute(
+                f"SELECT year, SUM({RKV_AMOUNT_EXPR}) AS s FROM data {main_where} GROUP BY year ORDER BY year",
+                main_params,
             ).fetchall()
+            yearly_amount_map = {int(r[0]): float(r[1]) if r[1] is not None else 0.0 for r in yearly_main}
+        else:
+            year_domain = [int(r[0]) for r in con.execute(
+                f"SELECT DISTINCT year FROM {view} WHERE year IS NOT NULL ORDER BY year"
+            ).fetchall()]
+            yearly_amount_map = {y: 0.0 for y in year_domain}
+
+        yearly_values, yearly_change_pct = [], []
+        prev_amount = None
+        for y in year_domain:
+            cur = yearly_amount_map.get(y, 0.0)
+            yearly_values.append(cur)
+            if prev_amount is None or prev_amount == 0:
+                yearly_change_pct.append(None)
+            else:
+                yearly_change_pct.append(((cur - prev_amount) / abs(prev_amount)) * 100)
+            prev_amount = cur
+
+        anomaly_clauses, anomaly_params = [], []
+        if direction == "up":
+            anomaly_clauses.append("yoy_real_pct > 0")
+        elif direction == "down":
+            anomaly_clauses.append("yoy_real_pct < 0")
+        if min_change_pct:
+            try:
+                anomaly_clauses.append("ABS(yoy_real_pct) >= ?")
+                anomaly_params.append(float(min_change_pct))
+            except ValueError:
+                pass
+        if not overview_mode:
+            anomaly_clauses.append(f'"{focus_col}" = ?')
+            anomaly_params.append(focus_value)
+            if within_value != "all":
+                anomaly_clauses.append(f'"{driver_col}" = ?')
+                anomaly_params.append(within_value)
+        anomaly_where = "WHERE " + " AND ".join(anomaly_clauses) if anomaly_clauses else ""
+        anomaly_years = {
+            int(r[0]) for r in con.execute(
+                f"SELECT DISTINCT year FROM {view} {anomaly_where}",
+                anomaly_params,
+            ).fetchall()
+            if r[0] is not None
+        }
+        anomaly_flags = [y in anomaly_years for y in year_domain]
+
+        active_filters = []
+        if focus_value != "all":
+            active_filters.append({"label": rkv_dn(focus_col), "value": focus_value, "param": "focus_value"})
+        if within_value != "all":
+            active_filters.append({"label": rkv_dn(driver_col), "value": within_value, "param": "within_value"})
+        if year != "all":
+            active_filters.append({"label": "Ár", "value": str(year), "param": "year"})
+        if direction != "all":
+            active_filters.append({"label": "Stefna", "value": "Hækkun" if direction == "up" else "Lækkun", "param": "direction"})
+        if min_change_pct:
+            active_filters.append({"label": "Lágmarks breyting (%)", "value": str(min_change_pct), "param": "min_change_pct"})
 
         return render_template(
             "anomalies.html",
             source="reykjavik",
             data_loaded=True,
-            year=year, group_col=group_col, direction=direction, min_change=min_change,
+            focus=focus, focus_value=focus_value, focus_label=rkv_dn(focus_col),
+            driver_label=rkv_dn(driver_col),
+            within_value=within_value,
+            row_label=row_label,
+            overview_mode=overview_mode,
+            focus_options=focus_options,
+            year=year, direction=direction, min_change_pct=min_change_pct,
             years=years,
-            group_options=valid_groups,
+            active_filters=active_filters,
+            summary_rows=summary_rows,
+            context_rows=context_rows,
+            overall_buyer_rows=overall_buyer_rows,
+            overall_type_rows=overall_type_rows,
             anomaly_rows=anomaly_rows,
-            yearly_labels=[str(r[0]) for r in yearly],
-            yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
+            yearly_labels=[str(y) for y in year_domain],
+            yearly_values=yearly_values,
+            yearly_avg_abs_pct=yearly_change_pct,
+            anomaly_flags=anomaly_flags,
             limit=limit,
             dn=rkv_dn,
         )

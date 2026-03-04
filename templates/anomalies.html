@@ -6,7 +6,7 @@
 <div class="page-header">
   <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}</div>
   <h1>Anomalies</h1>
-  <p>Óvenjulegar breytingar milli ára — fundnar með tölfræðilegum aðferðum</p>
+  <p>Stærstu breytingar milli ára í útgjöldum og stofnunum</p>
 </div>
 
 {% if not data_loaded %}
@@ -14,24 +14,45 @@
 {% else %}
 
 <div class="layout">
-
-  <!-- Sidebar -->
   <div class="sidebar">
     <div class="panel">
       <form method="get">
-
+        <input type="hidden" name="focus_value" value="{{ focus_value }}" />
+        <input type="hidden" name="within_value" value="{{ within_value }}" />
+        <input type="hidden" name="year" value="{{ year }}" />
+        <input type="hidden" name="direction" value="{{ direction }}" />
+        <input type="hidden" name="min_change_pct" value="{{ min_change_pct }}" />
+        <input type="hidden" name="limit" value="{{ limit }}" />
         <div class="ctrl-group">
-          <label class="ctrl-label">Flokka eftir</label>
-          <select name="group_col" onchange="this.form.submit()">
-            {% for opt in group_options %}
-              <option value="{{ opt }}" {% if group_col == opt %}selected{% endif %}>{{ dn(opt) }}</option>
+          <label class="ctrl-label">Greina eftir</label>
+          <select name="focus" onchange="this.form.submit()">
+            <option value="tegund" {% if focus == 'tegund' %}selected{% endif %}>Tegund útgjalda</option>
+            <option value="buyer" {% if focus == 'buyer' %}selected{% endif %}>Stofnun</option>
+          </select>
+        </div>
+      </form>
+
+      <form method="get">
+        <input type="hidden" name="focus" value="{{ focus }}" />
+        <input type="hidden" name="within_value" value="{{ within_value }}" />
+        <input type="hidden" name="year" value="{{ year }}" />
+        <input type="hidden" name="direction" value="{{ direction }}" />
+        <input type="hidden" name="min_change_pct" value="{{ min_change_pct }}" />
+        <input type="hidden" name="limit" value="{{ limit }}" />
+        <div class="ctrl-group">
+          <label class="ctrl-label">{{ focus_label }}</label>
+          <input id="search-focus" type="text" placeholder="Leita í valkostum..." style="margin-bottom:6px" />
+          <select id="select-focus" name="focus_value">
+            <option value="all" {% if focus_value == 'all' %}selected{% endif %}>— Allar —</option>
+            {% for opt in focus_options %}
+              <option value="{{ opt }}" {% if focus_value == opt %}selected{% endif %}>{{ opt }}</option>
             {% endfor %}
           </select>
         </div>
 
         <div class="ctrl-group">
           <label class="ctrl-label">Ár</label>
-          <select name="year" onchange="this.form.submit()">
+          <select name="year">
             <option value="all" {% if year == 'all' %}selected{% endif %}>Öll ár</option>
             {% for y in years %}
               <option value="{{ y }}" {% if year | string == y | string %}selected{% endif %}>{{ y }}</option>
@@ -39,19 +60,18 @@
           </select>
         </div>
 
-        <div class="section-title" style="margin-top:4px">Stefna</div>
-        <div class="pill-grid" style="margin-bottom:12px">
-          <a class="pill {% if direction == 'all' %}active{% endif %}"
-             href="?group_col={{ group_col }}&year={{ year }}&direction=all&min_change={{ min_change }}&limit={{ limit }}">Allt</a>
-          <a class="pill {% if direction == 'up' %}active{% endif %}"
-             href="?group_col={{ group_col }}&year={{ year }}&direction=up&min_change={{ min_change }}&limit={{ limit }}">↑ Hækkun</a>
-          <a class="pill {% if direction == 'down' %}active{% endif %}"
-             href="?group_col={{ group_col }}&year={{ year }}&direction=down&min_change={{ min_change }}&limit={{ limit }}">↓ Lækkun</a>
+        <div class="ctrl-group">
+          <label class="ctrl-label">Stefna</label>
+          <select name="direction">
+            <option value="all" {% if direction == 'all' %}selected{% endif %}>Allt</option>
+            <option value="up" {% if direction == 'up' %}selected{% endif %}>Hækkun</option>
+            <option value="down" {% if direction == 'down' %}selected{% endif %}>Lækkun</option>
+          </select>
         </div>
 
         <div class="ctrl-group">
-          <label class="ctrl-label">Lágmarks breyting (kr.)</label>
-          <input type="number" name="min_change" value="{{ min_change }}" placeholder="t.d. 10000000" />
+          <label class="ctrl-label">Lágmarks breyting (%)</label>
+          <input type="number" step="0.1" name="min_change_pct" value="{{ min_change_pct }}" placeholder="t.d. 15" />
         </div>
 
         <div class="ctrl-group">
@@ -68,31 +88,197 @@
     </div>
   </div>
 
-  <!-- Main -->
   <div>
+    {% if active_filters %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Virkar síur</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px">
+        {% for f in active_filters %}
+          <span class="pill" style="display:inline-flex; gap:8px; align-items:center; cursor:default">
+            <span>{{ f.label }}: {{ f.value }}</span>
+            {% if f.param == "focus_value" %}
+              <a href="?focus={{ focus }}&focus_value=all&within_value=all&year={{ year }}&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% elif f.param == "within_value" %}
+              <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&within_value=all&year={{ year }}&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% elif f.param == "year" %}
+              <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&within_value={{ within_value | urlencode }}&year=all&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% elif f.param == "direction" %}
+              <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&within_value={{ within_value | urlencode }}&year={{ year }}&direction=all&min_change_pct={{ min_change_pct }}&limit={{ limit }}"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% elif f.param == "min_change_pct" %}
+              <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&within_value={{ within_value | urlencode }}&year={{ year }}&direction={{ direction }}&min_change_pct=&limit={{ limit }}"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% endif %}
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
 
-    <!-- Yearly context chart -->
     {% if yearly_labels %}
     <div class="panel" style="margin-bottom:12px">
-      <div class="section-title">Heildarsumma eftir árum (samhengi)</div>
+      <div class="section-title">Samhengi eftir árum</div>
       <div class="chart-wrap">
         <canvas id="yearly-chart"></canvas>
       </div>
     </div>
     {% endif %}
 
-    <!-- Anomaly table -->
+    {% if overview_mode %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Stofnanir með mestu breytingar (samtals milli ára)</div>
+      {% if overall_buyer_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Stofnun</th>
+              <th class="num">Meðal breyting (kr.)</th>
+              <th class="num">Samtals breyting (kr.)</th>
+              <th class="num">Stærsta breyting (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in overall_buyer_rows %}
+            <tr>
+              <td>
+                {% if r.group %}
+                <a href="?focus=buyer&focus_value={{ r.group | urlencode }}&within_value=all&year={{ year }}&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}">{{ r.group }}</a>
+                {% else %}
+                –
+                {% endif %}
+              </td>
+              <td class="num">{{ r.avg_change_amount }}</td>
+              <td class="num">{{ r.abs_change_sum }}</td>
+              <td class="num">{{ r.max_abs_pct }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="empty">Engin gögn.</div>{% endif %}
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Tegundir með mestu breytingar (samtals milli ára)</div>
+      {% if overall_type_rows %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Tegund</th>
+              <th class="num">Meðal breyting (kr.)</th>
+              <th class="num">Samtals breyting (kr.)</th>
+              <th class="num">Stærsta breyting (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in overall_type_rows %}
+            <tr>
+              <td>
+                {% if r.group %}
+                <a href="?focus=tegund&focus_value={{ r.group | urlencode }}&within_value=all&year={{ year }}&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}">{{ r.group }}</a>
+                {% else %}
+                –
+                {% endif %}
+              </td>
+              <td class="num">{{ r.avg_change_amount }}</td>
+              <td class="num">{{ r.abs_change_sum }}</td>
+              <td class="num">{{ r.max_abs_pct }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="empty">Engin gögn.</div>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if summary_rows %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Hvað breyttist mest innan valsins?</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{{ row_label }}</th>
+              <th class="num">Meðal breyting (kr.)</th>
+              <th class="num">Samtals breyting (kr.)</th>
+              <th class="num">Stærsta breyting (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in summary_rows %}
+            <tr>
+              <td>
+                {% if r.group %}
+                <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&within_value={{ r.group | urlencode }}&year={{ year }}&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}">{{ r.group }}</a>
+                {% else %}
+                –
+                {% endif %}
+              </td>
+              <td class="num">{{ r.avg_change_amount }}</td>
+              <td class="num">{{ r.abs_change_sum }}</td>
+              <td class="num">{{ r.max_abs_pct }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if context_rows %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">{{ row_label }} í þessu samhengi (öll gögn)</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{{ row_label }}</th>
+              <th class="num">Samtals upphæð (kr.)</th>
+              <th class="num">Ár með útgjöld</th>
+              <th class="num">Ár með frávikum</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in context_rows %}
+            <tr>
+              <td>
+                {% if r.group %}
+                <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&within_value={{ r.group | urlencode }}&year={{ year }}&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}">{{ r.group }}</a>
+                {% if r.is_selected %}<strong> (valið)</strong>{% endif %}
+                {% else %}
+                –
+                {% endif %}
+              </td>
+              <td class="num">{{ r.total_amount }}</td>
+              <td class="num">{{ r.years_with_spend }}</td>
+              <td class="num">{{ r.anomaly_years }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="panel">
       <div class="section-title">
-        Óvenjulegar breytingar
+        Stærstu breytingar milli ára
         {% if anomaly_rows %}({{ anomaly_rows | length }} niðurstöður){% endif %}
       </div>
+      {% if not overview_mode %}
       {% if anomaly_rows %}
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>{{ dn(group_col) }}</th>
+              <th>{{ row_label }}</th>
+              <th class="num">Tímabil</th>
               <th class="num">Ár</th>
               <th class="num">Raun</th>
               <th class="num">Fyrra ár</th>
@@ -103,7 +289,14 @@
           <tbody>
             {% for row in anomaly_rows %}
             <tr>
-              <td>{{ row.group or "–" }}</td>
+              <td>
+                {% if row.group %}
+                <a href="?focus={{ focus }}&focus_value={{ focus_value | urlencode }}&within_value={{ row.group | urlencode }}&year={{ year }}&direction={{ direction }}&min_change_pct={{ min_change_pct }}&limit={{ limit }}">{{ row.group }}</a>
+                {% else %}
+                –
+                {% endif %}
+              </td>
+              <td class="num">{{ row.period }}</td>
               <td class="num">{{ row.year }}</td>
               <td class="num">{{ row.actual }}</td>
               <td class="num">{{ row.prior }}</td>
@@ -119,7 +312,10 @@
         </table>
       </div>
       {% else %}
-        <div class="empty">Engar óvenjulegar breytingar fundust með þessum síum.</div>
+      <div class="empty">Engar breytingar fundust með þessum síum.</div>
+      {% endif %}
+      {% else %}
+      <div class="empty">Veldu stofnun eða tegund til að sjá sundurliðaðar breytingar milli ára.</div>
       {% endif %}
     </div>
   </div>
@@ -127,28 +323,91 @@
 {% endif %}
 
 <script>
+{% if data_loaded %}
+function wireSelectSearch(searchId, selectId) {
+  const search = document.getElementById(searchId);
+  const select = document.getElementById(selectId);
+  if (!search || !select) return;
+
+  const originalOptions = Array.from(select.options).map((opt) => ({
+    value: opt.value,
+    text: opt.text,
+    selected: opt.selected,
+  }));
+
+  const render = () => {
+    const q = search.value.trim().toLowerCase();
+    const currentValue = select.value;
+    const filtered = q
+      ? originalOptions.filter((opt) => opt.value === "all" || opt.text.toLowerCase().includes(q))
+      : originalOptions;
+
+    select.innerHTML = "";
+    filtered.forEach((opt) => {
+      const el = document.createElement("option");
+      el.value = opt.value;
+      el.text = opt.text;
+      el.selected = opt.value === currentValue || (currentValue === "" && opt.selected);
+      select.appendChild(el);
+    });
+
+    if (!Array.from(select.options).some((opt) => opt.value === currentValue)) {
+      select.value = "all";
+    }
+  };
+
+  search.addEventListener("input", render);
+}
+wireSelectSearch("search-focus", "select-focus");
+{% endif %}
+
 {% if data_loaded and yearly_labels %}
 new Chart(document.getElementById("yearly-chart"), {
-  type: "bar",
   data: {
     labels: {{ yearly_labels | tojson }},
     datasets: [{
+      label: "Samtals breyting (kr.)",
       data: {{ yearly_values | tojson }},
-      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .2)",
-      borderColor:     "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)",
+      type: "bar",
+      backgroundColor: {{ anomaly_flags | tojson }}.map((isA) => isA ? "rgba(220,38,38,.22)" : "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .18)"),
+      borderColor: {{ anomaly_flags | tojson }}.map((isA) => isA ? "rgba(220,38,38,.95)" : "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)"),
       borderWidth: 2,
       borderRadius: 4,
+      yAxisID: "y",
+    }, {
+      label: "Árleg breyting (%)",
+      data: {{ yearly_avg_abs_pct | tojson }},
+      type: "line",
+      borderColor: "#111827",
+      borderWidth: 2,
+      pointRadius: 3,
+      pointBackgroundColor: {{ anomaly_flags | tojson }}.map((isA) => isA ? "#dc2626" : "#111827"),
+      tension: 0.25,
+      fill: false,
+      yAxisID: "y1",
     }]
   },
   options: {
     responsive: true, maintainAspectRatio: false,
     plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: ctx => " " + ctx.parsed.y.toLocaleString("is-IS") + " kr." } }
+      legend: { display: true, position: "bottom" },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            if (ctx.dataset.yAxisID === "y1") return " " + Number(ctx.parsed.y || 0).toFixed(2) + "%";
+            return " " + Number(ctx.parsed.y || 0).toLocaleString("is-IS") + " kr.";
+          }
+        }
+      }
     },
     scales: {
       x: { grid: { display: false } },
-      y: { grid: { color: "#f0f0f0" }, ticks: { callback: v => (v/1e9).toFixed(1) + "B" } }
+      y: { position: "left", grid: { color: "#f0f0f0" }, ticks: { callback: (v) => Number(v).toLocaleString("is-IS") } },
+      y1: {
+        position: "right",
+        grid: { drawOnChartArea: false },
+        ticks: { callback: (v) => Number(v).toFixed(1) + "%" }
+      }
     }
   }
 });
