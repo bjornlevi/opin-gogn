@@ -274,6 +274,7 @@ def create_app() -> Flask:
         year = request.args.get("year", "all")
         tegund = request.args.get("tegund", "all")
         buyer = request.args.get("buyer", "all")
+        seller = request.args.get("seller", "all")
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
         page = max(1, int(request.args.get("page", 1)))
@@ -288,10 +289,12 @@ def create_app() -> Flask:
             ("year", year if year != "all" else None),
             ("Tegund", tegund if tegund != "all" else None),
             ("Kaupandi", buyer if buyer != "all" else None),
+            ("Birgi", seller if seller != "all" else None),
         ])
         chart_where, chart_params = build_where([
             ("Tegund", tegund if tegund != "all" else None),
             ("Kaupandi", buyer if buyer != "all" else None),
+            ("Birgi", seller if seller != "all" else None),
         ])
 
         # Add filter for corrections
@@ -364,12 +367,14 @@ def create_app() -> Flask:
             active_filters.append({"label": "Tegund", "value": tegund, "param": "tegund"})
         if buyer != "all":
             active_filters.append({"label": "Kaupandi", "value": buyer, "param": "buyer"})
+        if seller != "all":
+            active_filters.append({"label": "Birgi", "value": seller, "param": "seller"})
 
         return render_template(
             "explorer.html",
             source="rikid",
             data_loaded=True,
-            year=year, tegund=tegund, buyer=buyer,
+            year=year, tegund=tegund, buyer=buyer, seller=seller,
             years=years_raw,
             tegund_opts=tegund_opts,
             buyer_opts=buyer_opts,
@@ -378,7 +383,7 @@ def create_app() -> Flask:
             breakdown_sections=[
                 {"title": "Sundurliðun eftir tegund (topp 30)", "label": "Tegund", "rows": type_breakdown, "filter_param": "tegund"},
                 {"title": "Sundurliðun eftir kaupanda (topp 30)", "label": "Kaupandi", "rows": buyer_breakdown, "filter_param": "buyer"},
-                {"title": "Sundurliðun eftir birgja (topp 30)", "label": "Birgi", "rows": seller_breakdown},
+                {"title": "Sundurliðun eftir birgja (topp 30)", "label": "Birgi", "rows": seller_breakdown, "filter_param": "seller"},
             ],
             totals={"count": tot[0], "sum": tot[1], "pos": tot[2], "neg": tot[3]} if tot else {},
             preview_rows=preview_rows,
@@ -899,6 +904,7 @@ def create_app() -> Flask:
         year = request.args.get("year", "all")
         tegund0 = request.args.get("tegund", request.args.get("tegund0", "all"))
         samtala0 = request.args.get("buyer", request.args.get("samtala0", "all"))
+        seller = request.args.get("seller", "all")
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
         page = max(1, int(request.args.get("page", 1)))
@@ -918,6 +924,12 @@ def create_app() -> Flask:
             ("tegund0", tegund0 if tegund0 != "all" else None),
             ("samtala0", samtala0 if samtala0 != "all" else None),
         ])
+        if seller != "all":
+            seller_clause = f"{RKV_SUPPLIER_EXPR} = ?"
+            where += f" AND {seller_clause}" if where else f"WHERE {seller_clause}"
+            chart_where += f" AND {seller_clause}" if chart_where else f"WHERE {seller_clause}"
+            params.append(seller)
+            chart_params.append(seller)
 
         # Add filter for corrections
         if not show_corrections:
@@ -989,12 +1001,14 @@ def create_app() -> Flask:
             active_filters.append({"label": "Tegundaflokkur", "value": tegund0, "param": "tegund"})
         if samtala0 != "all":
             active_filters.append({"label": "Svið", "value": samtala0, "param": "buyer"})
+        if seller != "all":
+            active_filters.append({"label": "VSK-heiti", "value": seller, "param": "seller"})
 
         return render_template(
             "explorer.html",
             source="reykjavik",
             data_loaded=True,
-            year=year, tegund=tegund0, buyer=samtala0,
+            year=year, tegund=tegund0, buyer=samtala0, seller=seller,
             years=years_raw,
             tegund_opts=tegund0_opts,
             buyer_opts=samtala0_opts,
@@ -1005,7 +1019,7 @@ def create_app() -> Flask:
             breakdown_sections=[
                 {"title": "Sundurliðun eftir tegund (topp 30)", "label": "Tegund", "rows": type_breakdown, "filter_param": "tegund"},
                 {"title": "Sundurliðun eftir kaupanda (topp 30)", "label": "Svið", "rows": buyer_breakdown, "filter_param": "buyer"},
-                {"title": "Sundurliðun eftir seljanda (topp 30)", "label": "VSK-heiti", "rows": seller_breakdown},
+                {"title": "Sundurliðun eftir seljanda (topp 30)", "label": "VSK-heiti", "rows": seller_breakdown, "filter_param": "seller"},
             ],
             totals={"count": tot[0], "sum": tot[1], "pos": tot[2], "neg": tot[3]} if tot else {},
             preview_rows=preview_rows,

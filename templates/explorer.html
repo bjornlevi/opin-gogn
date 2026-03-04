@@ -23,10 +23,10 @@
       <div class="section-title">Ár</div>
       <div class="pill-grid">
         <a class="pill {% if year == 'all' %}active{% endif %}"
-           href="?year=all&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}">Öll</a>
+           href="?year=all&tegund={{ tegund }}&buyer={{ buyer }}&seller={{ seller }}&limit={{ limit }}">Öll</a>
         {% for y in years %}
           <a class="pill {% if year | string == y | string %}active{% endif %}"
-             href="?year={{ y }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}">{{ y }}{% if loop.first %}*{% endif %}</a>
+             href="?year={{ y }}&tegund={{ tegund }}&buyer={{ buyer }}&seller={{ seller }}&limit={{ limit }}">{{ y }}{% if loop.first %}*{% endif %}</a>
         {% endfor %}
       </div>
     </div>
@@ -34,6 +34,7 @@
     <div class="panel">
       <form method="get">
         <input type="hidden" name="year"  value="{{ year }}" />
+        <input type="hidden" name="seller" value="{{ seller }}" />
         <input type="hidden" name="limit" value="{{ limit }}" />
 
         <div class="ctrl-group">
@@ -65,6 +66,7 @@
         <input type="hidden" name="year"   value="{{ year }}" />
         <input type="hidden" name="tegund" value="{{ tegund }}" />
         <input type="hidden" name="buyer"  value="{{ buyer }}" />
+        <input type="hidden" name="seller" value="{{ seller }}" />
         <input type="number" name="limit" value="{{ limit }}" min="1" max="500" style="flex:1" />
         <button class="btn btn-ghost" type="submit" style="width:auto;padding:7px 12px">Línur</button>
       </form>
@@ -117,13 +119,16 @@
           <span class="pill" style="display:inline-flex; gap:8px; align-items:center; cursor:default">
             <span>{{ f.label }}: {{ f.value }}</span>
             {% if f.param == "year" %}
-              <a href="?year=all&tegund={{ tegund | urlencode }}&buyer={{ buyer | urlencode }}&limit={{ limit }}&page=1"
+              <a href="?year=all&tegund={{ tegund | urlencode }}&buyer={{ buyer | urlencode }}&seller={{ seller | urlencode }}&limit={{ limit }}&page=1"
                  style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
             {% elif f.param == "tegund" %}
-              <a href="?year={{ year }}&tegund=all&buyer={{ buyer | urlencode }}&limit={{ limit }}&page=1"
+              <a href="?year={{ year }}&tegund=all&buyer={{ buyer | urlencode }}&seller={{ seller | urlencode }}&limit={{ limit }}&page=1"
                  style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
             {% elif f.param == "buyer" %}
-              <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer=all&limit={{ limit }}&page=1"
+              <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer=all&seller={{ seller | urlencode }}&limit={{ limit }}&page=1"
+                 style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+            {% elif f.param == "seller" %}
+              <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer={{ buyer | urlencode }}&seller=all&limit={{ limit }}&page=1"
                  style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
             {% endif %}
           </span>
@@ -156,9 +161,11 @@
               <tr>
                 <td>
                   {% if row[0] and section.filter_param == "tegund" %}
-                    <a href="?year={{ year }}&tegund={{ row[0] | urlencode }}&buyer={{ buyer | urlencode }}&limit={{ limit }}&page=1">{{ row[0] }}</a>
+                    <a href="?year={{ year }}&tegund={{ row[0] | urlencode }}&buyer={{ buyer | urlencode }}&seller={{ seller | urlencode }}&limit={{ limit }}&page=1">{{ row[0] }}</a>
                   {% elif row[0] and section.filter_param == "buyer" %}
-                    <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer={{ row[0] | urlencode }}&limit={{ limit }}&page=1">{{ row[0] }}</a>
+                    <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer={{ row[0] | urlencode }}&seller={{ seller | urlencode }}&limit={{ limit }}&page=1">{{ row[0] }}</a>
+                  {% elif row[0] and section.filter_param == "seller" %}
+                    <a href="?year={{ year }}&tegund={{ tegund | urlencode }}&buyer={{ buyer | urlencode }}&seller={{ row[0] | urlencode }}&limit={{ limit }}&page=1">{{ row[0] }}</a>
                   {% else %}
                     {{ row[0] or "–" }}
                   {% endif %}
@@ -206,13 +213,13 @@
       {% if total_pages > 1 %}
       <div class="pagination">
         {% if page > 1 %}
-          <a href="?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}&page={{ page - 1 }}">‹</a>
+          <a href="?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&seller={{ seller }}&limit={{ limit }}&page={{ page - 1 }}">‹</a>
         {% else %}
           <span class="disabled">‹</span>
         {% endif %}
         <span class="current">{{ page }} / {{ total_pages }}</span>
         {% if page < total_pages %}
-          <a href="?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&limit={{ limit }}&page={{ page + 1 }}">›</a>
+          <a href="?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&seller={{ seller }}&limit={{ limit }}&page={{ page + 1 }}">›</a>
         {% else %}
           <span class="disabled">›</span>
         {% endif %}
