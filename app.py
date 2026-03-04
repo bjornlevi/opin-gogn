@@ -194,6 +194,11 @@ def rikid_dn(col: str) -> str:
 # ===========================================================================
 
 RKV_AMOUNT_EXPR = "TRY_CAST(REPLACE(REPLACE(raun, '.', ''), ',', '.') AS DOUBLE)"
+RKV_SUPPLIER_EXPR = (
+    "COALESCE(NULLIF(TRIM(vm_nafn), ''), "
+    "NULLIF(TRIM(fyrirtaeki), ''), "
+    "NULLIF(TRIM(vm_numer), ''))"
+)
 
 RKV_TYPE_COLS = ["tegund0", "tegund1", "tegund2", "tegund3"]
 RKV_ORG_COLS = ["samtala0", "samtala1", "samtala2_canonical", "samtala3"]
@@ -215,6 +220,8 @@ RKV_DISPLAY = {
     "raun": "Upphæð (raun)",
     "fyrirtaeki": "Fyrirtæki",
     "vm_numer": "VSK-númer",
+    "supplier_name": "VSK-heiti",
+    "vm_nafn": "VSK-heiti",
 }
 
 
@@ -947,8 +954,8 @@ def create_app() -> Flask:
             params,
         ).fetchall()
         seller_breakdown = con.execute(
-            f"SELECT fyrirtaeki, SUM({RKV_AMOUNT_EXPR}) AS s, COUNT(*) AS n "
-            f"FROM data {where} GROUP BY fyrirtaeki ORDER BY s DESC LIMIT 30",
+            f"SELECT {RKV_SUPPLIER_EXPR} AS supplier_name, SUM({RKV_AMOUNT_EXPR}) AS s, COUNT(*) AS n "
+            f"FROM data {where} GROUP BY supplier_name ORDER BY s DESC LIMIT 30",
             params,
         ).fetchall()
 
@@ -963,13 +970,13 @@ def create_app() -> Flask:
 
         # Preview rows
         rows = con.execute(
-            f"SELECT year, samtala0, samtala1, tegund0, tegund1, raun, fyrirtaeki "
+            f"SELECT year, samtala0, samtala1, tegund0, tegund1, raun, {RKV_SUPPLIER_EXPR} AS supplier_name "
             f"FROM data {where} LIMIT {limit} OFFSET {offset}",
             params,
         ).fetchall()
         preview_rows = [
             {"year": r[0], "samtala0": r[1], "samtala1": r[2],
-             "tegund0": r[3], "tegund1": r[4], "raun": r[5], "fyrirtaeki": r[6]}
+             "tegund0": r[3], "tegund1": r[4], "raun": r[5], "supplier_name": r[6]}
             for r in rows
         ]
 
@@ -998,11 +1005,11 @@ def create_app() -> Flask:
             breakdown_sections=[
                 {"title": "Sundurliðun eftir tegund (topp 30)", "label": "Tegund", "rows": type_breakdown, "filter_param": "tegund"},
                 {"title": "Sundurliðun eftir kaupanda (topp 30)", "label": "Svið", "rows": buyer_breakdown, "filter_param": "buyer"},
-                {"title": "Sundurliðun eftir seljanda (topp 30)", "label": "Fyrirtæki", "rows": seller_breakdown},
+                {"title": "Sundurliðun eftir seljanda (topp 30)", "label": "VSK-heiti", "rows": seller_breakdown},
             ],
             totals={"count": tot[0], "sum": tot[1], "pos": tot[2], "neg": tot[3]} if tot else {},
             preview_rows=preview_rows,
-            preview_cols=["year", "samtala0", "samtala1", "tegund0", "tegund1", "raun", "fyrirtaeki"],
+            preview_cols=["year", "samtala0", "samtala1", "tegund0", "tegund1", "raun", "supplier_name"],
             page=page, limit=limit, total_pages=total_pages,
             active_filters=active_filters,
             dn=rkv_dn,
