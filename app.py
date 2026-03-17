@@ -213,8 +213,8 @@ RKV_DISPLAY = {
     "tegund1": "Tegund 1",
     "tegund2": "Tegund 2",
     "tegund3": "Tegund 3",
-    "samtala0": "Svið",
-    "samtala1": "Deild",
+    "samtala0": "Stofnun",
+    "samtala1": "Svið",
     "samtala2_canonical": "Þjónusta",
     "samtala3": "Undireining",
     "raun": "Upphæð (raun)",
@@ -904,7 +904,9 @@ def create_app() -> Flask:
         year = request.args.get("year", "all")
         tegund0 = request.args.get("tegund", request.args.get("tegund0", "all"))
         samtala0 = request.args.get("buyer", request.args.get("samtala0", "all"))
+        samtala1 = request.args.get("samtala1", "all")
         seller = request.args.get("seller", "all")
+        sign = request.args.get("sign", "all")  # "pos", "neg", or "all"
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
         limit = max(1, min(500, int(request.args.get("limit", 50))))
         page = max(1, int(request.args.get("page", 1)))
@@ -919,10 +921,12 @@ def create_app() -> Flask:
             ("year", year if year != "all" else None),
             ("tegund0", tegund0 if tegund0 != "all" else None),
             ("samtala0", samtala0 if samtala0 != "all" else None),
+            ("samtala1", samtala1 if samtala1 != "all" else None),
         ])
         chart_where, chart_params = build_where([
             ("tegund0", tegund0 if tegund0 != "all" else None),
             ("samtala0", samtala0 if samtala0 != "all" else None),
+            ("samtala1", samtala1 if samtala1 != "all" else None),
         ])
         if seller != "all":
             seller_clause = f"{RKV_SUPPLIER_EXPR} = ?"
@@ -930,6 +934,16 @@ def create_app() -> Flask:
             chart_where += f" AND {seller_clause}" if chart_where else f"WHERE {seller_clause}"
             params.append(seller)
             chart_params.append(seller)
+
+        # Add filter for sign (positive/negative)
+        if sign == "pos":
+            sign_clause = f"{RKV_AMOUNT_EXPR} > 0"
+            where += f" AND {sign_clause}" if where else f"WHERE {sign_clause}"
+            chart_where += f" AND {sign_clause}" if chart_where else f"WHERE {sign_clause}"
+        elif sign == "neg":
+            sign_clause = f"{RKV_AMOUNT_EXPR} < 0"
+            where += f" AND {sign_clause}" if where else f"WHERE {sign_clause}"
+            chart_where += f" AND {sign_clause}" if chart_where else f"WHERE {sign_clause}"
 
         # Add filter for corrections
         if not show_corrections:
@@ -948,6 +962,10 @@ def create_app() -> Flask:
             "SELECT DISTINCT samtala0 FROM data WHERE samtala0 IS NOT NULL ORDER BY samtala0"
         ).fetchall()]
 
+        samtala1_opts = [r[0] for r in con.execute(
+            "SELECT DISTINCT samtala1 FROM data WHERE samtala1 IS NOT NULL ORDER BY samtala1"
+        ).fetchall()]
+
         # Yearly totals
         yearly = con.execute(
             f"SELECT year, SUM({RKV_AMOUNT_EXPR}) FROM data {chart_where} GROUP BY year ORDER BY year",
@@ -956,7 +974,7 @@ def create_app() -> Flask:
 
         # Expense type breakdown (tegund0)
         type_breakdown = con.execute(
-            f"SELECT tegund0, SUM({RKV_AMOUNT_EXPR}) AS s, COUNT(*) AS n "
+            f"SELECT COALESCE(tegund0, 'Ótilgreint') AS tegund0, SUM({RKV_AMOUNT_EXPR}) AS s, COUNT(*) AS n "
             f"FROM data {where} GROUP BY tegund0 ORDER BY s DESC LIMIT 30",
             params,
         ).fetchall()
@@ -988,7 +1006,7 @@ def create_app() -> Flask:
         ).fetchall()
         preview_rows = [
             {"year": r[0], "samtala0": r[1], "samtala1": r[2],
-             "tegund0": r[3], "tegund1": r[4], "raun": r[5], "supplier_name": r[6]}
+             "tegund0": r[3], "tegund1": r[4], "raun": fmt(float(r[5]) if r[5] else 0), "supplier_name": r[6]}
             for r in rows
         ]
 
@@ -1000,20 +1018,26 @@ def create_app() -> Flask:
         if tegund0 != "all":
             active_filters.append({"label": "Tegundaflokkur", "value": tegund0, "param": "tegund"})
         if samtala0 != "all":
-            active_filters.append({"label": "Svið", "value": samtala0, "param": "buyer"})
+            active_filters.append({"label": "Stofnun", "value": samtala0, "param": "buyer"})
+        if samtala1 != "all":
+            active_filters.append({"label": "Svið", "value": samtala1, "param": "samtala1"})
         if seller != "all":
             active_filters.append({"label": "VSK-heiti", "value": seller, "param": "seller"})
+        if sign != "all":
+            sign_label = "Jákvæðar" if sign == "pos" else "Neikvæðar"
+            active_filters.append({"label": sign_label, "value": "", "param": "sign"})
 
         return render_template(
             "explorer.html",
             source="reykjavik",
             data_loaded=True,
-            year=year, tegund=tegund0, buyer=samtala0, seller=seller,
+            year=year, tegund=tegund0, buyer=samtala0, samtala1=samtala1, seller=seller, sign=sign,
             years=years_raw,
             tegund_opts=tegund0_opts,
             buyer_opts=samtala0_opts,
+            samtala1_opts=samtala1_opts,
             tegund_label="Tegundaflokkur",
-            buyer_label="Svið (stofnun)",
+            buyer_label="Stofnun",
             yearly_labels=[str(r[0]) for r in yearly],
             yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
             breakdown_sections=[

@@ -5,7 +5,7 @@
 SHELL  := /bin/bash
 PYTHON_RIKID     := ../rikid/.venv/bin/python3
 PYTHON_REYKJAVIK := ../reykjavik/.venv/bin/python3
-PYTHON           := $(PYTHON_RIKID)   # used for the web server and auto-detect query
+PYTHON           := .venv/bin/python3   # used for the web server and auto-detect query
 
 RIKID_SCRIPTS     := ../rikid/scripts
 REYKJAVIK_SCRIPTS := ../reykjavik/scripts
@@ -22,14 +22,14 @@ ORG_ID    ?=
 VENDOR_ID ?=
 TYPE_ID   ?=
 
-.PHONY: run dev install pipeline refresh anomalies \
+.PHONY: web dev install pipeline refresh anomalies \
         rikid-pipeline rikid-refresh rikid-anomalies \
         reykjavik-pipeline reykjavik-anomalies
 
 # ── Web ──────────────────────────────────────────────────────────────────────
 
-run:
-	$(PYTHON) -m gunicorn -b 0.0.0.0:5002 wsgi:app
+web:
+	$(PYTHON) -m flask --app app run --debug --port 5002
 
 dev:
 	$(PYTHON) -m flask --app app run --debug --port 5002
