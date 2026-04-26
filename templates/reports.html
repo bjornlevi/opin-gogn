@@ -30,7 +30,7 @@
       <div class="pill-grid">
         <a class="pill {% if year == 'all' %}active{% endif %}" href="?mode={{ mode }}&year=all">Öll</a>
         {% for y in years %}
-          <a class="pill {% if year | string == y | string %}active{% endif %}"
+          <a class="pill {% if year | string == (y | replace('*', '')) | string %}active{% endif %}"
              href="?mode={{ mode }}&year={{ y }}">{{ y }}</a>
         {% endfor %}
       </div>

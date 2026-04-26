@@ -143,7 +143,7 @@ def _rkv_headline() -> dict:
         years = [r[0] for r in con.execute(
             "SELECT DISTINCT year FROM data WHERE year IS NOT NULL AND (is_correction = FALSE OR is_correction IS NULL) ORDER BY year DESC"
         ).fetchall()]
-        amt = "TRY_CAST(REPLACE(REPLACE(raun, '.', ''), ',', '.') AS DOUBLE)"
+        amt = "raun"  # raun is already numeric after download processing
         yearly = con.execute(
             f"SELECT year, "
             f"SUM(CASE WHEN {amt} > 0 THEN {amt} END) AS pos, "
@@ -193,11 +193,11 @@ def rikid_dn(col: str) -> str:
 # REYKJAVIK
 # ===========================================================================
 
-RKV_AMOUNT_EXPR = "TRY_CAST(REPLACE(REPLACE(raun, '.', ''), ',', '.') AS DOUBLE)"
+RKV_AMOUNT_EXPR = "raun"  # raun is already numeric after download processing
 RKV_SUPPLIER_EXPR = (
     "COALESCE(NULLIF(TRIM(vm_nafn), ''), "
     "NULLIF(TRIM(fyrirtaeki), ''), "
-    "NULLIF(TRIM(vm_numer), ''))"
+    "NULLIF(TRIM(CAST(vm_numer AS VARCHAR)), ''))"
 )
 
 RKV_TYPE_COLS = ["tegund0", "tegund1", "tegund2", "tegund3"]
@@ -901,7 +901,7 @@ def create_app() -> Flask:
 
     @app.route("/reykjavik/")
     def rkv_explorer():
-        year = request.args.get("year", "all")
+        year = request.args.get("year", "all").rstrip("*")  # Remove asterisk indicator
         tegund0 = request.args.get("tegund", request.args.get("tegund0", "all"))
         samtala0 = request.args.get("buyer", request.args.get("samtala0", "all"))
         samtala1 = request.args.get("samtala1", "all")
@@ -1115,6 +1115,8 @@ def create_app() -> Flask:
 
         change_rows = []
         for yr, total, chg_pct in yearly_selected:
+            if yr is None:
+                continue
             yr_i = int(yr)
             chg_pct_f = float(chg_pct) if chg_pct is not None else None
             avg_pct_f = avg_change_map.get(yr_i)
@@ -1489,7 +1491,7 @@ def create_app() -> Flask:
 
     @app.route("/reykjavik/reports")
     def rkv_reports():
-        year = request.args.get("year", "all")
+        year = request.args.get("year", "all").rstrip("*")  # Remove asterisk indicator
         mode = request.args.get("mode", "tegund")  # tegund | org
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
 

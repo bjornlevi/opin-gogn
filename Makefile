@@ -3,27 +3,19 @@
 # Pipeline scripts are borrowed from the sibling repos but run here.
 
 SHELL  := /bin/bash
-PYTHON_RIKID     := ../rikid/.venv/bin/python3
-PYTHON_REYKJAVIK := ../reykjavik/.venv/bin/python3
-PYTHON           := .venv/bin/python3   # used for the web server and auto-detect query
+PYTHON := .venv/bin/python3   # Python for web server and pipeline
 
-RIKID_SCRIPTS     := ../rikid/scripts
-REYKJAVIK_SCRIPTS := ../reykjavik/scripts
+SCRIPTS := scripts
 
-RIKID_RAW_DIR    := data/rikid/raw
 RIKID_PARQUET_DIR := data/rikid/parquet
-RKV_RAW_DIR      := data/reykjavik/raw
 RKV_PROCESSED_DIR := data/reykjavik/processed
 
-# Rikid pipeline overrides
+# Pipeline overrides
 FROM      ?=
 TO        ?=
-ORG_ID    ?=
-VENDOR_ID ?=
-TYPE_ID   ?=
 
-.PHONY: web dev install pipeline refresh anomalies \
-        rikid-pipeline rikid-refresh rikid-anomalies \
+.PHONY: web dev install pipeline anomalies \
+        rikid-pipeline rikid-anomalies \
         reykjavik-pipeline reykjavik-anomalies
 
 # ── Web ──────────────────────────────────────────────────────────────────────
@@ -41,106 +33,81 @@ install:
 # ── Combined pipelines ───────────────────────────────────────────────────────
 
 # Run both source pipelines and rebuild anomalies.
-# FROM defaults to the first day of the latest month already in the rikid parquet.
-# TO defaults to today. Both can be overridden: make pipeline FROM=... TO=...
+# Usage:
+#   make pipeline         - Incremental update (from last date to today)
+#   make pipeline RESET=1 - Full refresh (delete and redownload everything)
+RESET ?=
+
 pipeline:
-	@from="$(FROM)"; \
-	if [ -z "$$from" ]; then \
-		from=$$($(PYTHON) scripts/rikid_max_date.py 2>/dev/null || echo "2017-01-01"); \
-	fi; \
-	to="$(TO)"; \
-	if [ -z "$$to" ]; then to=$$(date +%Y-%m-%d); fi; \
-	echo "==> rikid:     FROM=$$from TO=$$to"; \
-	echo "==> reykjavik: full refresh"; \
-	$(MAKE) rikid-pipeline FROM=$$from TO=$$to \
-		ORG_ID="$(ORG_ID)" VENDOR_ID="$(VENDOR_ID)" TYPE_ID="$(TYPE_ID)" && \
-	$(MAKE) reykjavik-pipeline && \
-	$(MAKE) anomalies
-
-# Force-redownload a date range for rikid, then rebuild everything
-refresh:
-	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then \
-		echo "Usage: make refresh FROM=YYYY-MM-DD TO=YYYY-MM-DD"; \
-		exit 1; \
+	@reset="$(RESET)"; \
+	if [ "$$reset" = "1" ]; then \
+		echo "==> RESET MODE: Full refresh"; \
+		rm -f $(RIKID_PARQUET_DIR)/opnirreikningar*.parquet; \
+		rm -f $(RKV_PROCESSED_DIR)/arsuppgjor*.parquet; \
+		$(MAKE) rikid-pipeline FROM=2017-01-01 || echo "⚠ Rikið pipeline failed (API issue)"; \
+		$(MAKE) reykjavik-pipeline && \
+		$(MAKE) anomalies; \
+	else \
+		echo "==> Incremental update"; \
+		from=$$($(PYTHON) scripts/detect_max_date.py "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet" 2>/dev/null || echo "2017-01-01"); \
+		to=$$(date +%Y-%m-%d); \
+		echo "==> rikid:     FROM=$$from TO=$$to"; \
+		echo "==> reykjavik: refresh all years"; \
+		$(MAKE) rikid-pipeline FROM=$$from TO=$$to || echo "⚠ Rikið pipeline failed (API issue)"; \
+		$(MAKE) reykjavik-pipeline && \
+		$(MAKE) anomalies; \
 	fi
-	$(MAKE) rikid-refresh FROM=$(FROM) TO=$(TO) \
-		ORG_ID="$(ORG_ID)" VENDOR_ID="$(VENDOR_ID)" TYPE_ID="$(TYPE_ID)"
-	$(MAKE) reykjavik-pipeline
-	$(MAKE) anomalies
-
-# Rebuild anomaly parquets for both sources
-anomalies: rikid-anomalies reykjavik-anomalies
 
 # ── Rikid ────────────────────────────────────────────────────────────────────
 
 rikid-pipeline:
-	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then \
-		echo "Usage: make rikid-pipeline FROM=YYYY-MM-DD TO=YYYY-MM-DD"; \
-		exit 1; \
+	mkdir -p $(RIKID_PARQUET_DIR)
+	@from="$(FROM)"; to="$(TO)"; \
+	if [ -z "$$from" ]; then from="2017-01-01"; fi; \
+	if [ -z "$$to" ]; then to=$$(date +%Y-%m-%d); fi; \
+	echo "==> Downloading Rikið data from $$from to $$to (monthly chunks)"; \
+	$(PYTHON) $(SCRIPTS)/download_rikid.py \
+		--from "$$from" --to "$$to" \
+		--output "$(RIKID_PARQUET_DIR)/opnirreikningar.parquet" || true
+	@if [ -f "$(RIKID_PARQUET_DIR)/opnirreikningar.parquet" ]; then \
+		echo "==> Detecting correction transactions..."; \
+		$(PYTHON) $(SCRIPTS)/detect_corrections.py \
+			--input "$(RIKID_PARQUET_DIR)/opnirreikningar.parquet" \
+			--output "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet"; \
 	fi
-	mkdir -p $(RIKID_RAW_DIR) $(RIKID_PARQUET_DIR)
-	$(PYTHON_RIKID) $(RIKID_SCRIPTS)/pipeline.py \
-		--from $(FROM) --to $(TO) \
-		--raw-dir $(RIKID_RAW_DIR) \
-		--parquet-dir $(RIKID_PARQUET_DIR) \
-		--org-id "$(ORG_ID)" --vendor-id "$(VENDOR_ID)" --type-id "$(TYPE_ID)"
-	@echo "==> Detecting correction transactions..."
-	$(PYTHON) scripts/detect_corrections.py \
-		--input $(RIKID_PARQUET_DIR)/opnirreikningar.parquet \
-		--output $(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet
-
-rikid-refresh:
-	@if [ -z "$(FROM)" ] || [ -z "$(TO)" ]; then \
-		echo "Usage: make rikid-refresh FROM=YYYY-MM-DD TO=YYYY-MM-DD"; \
-		exit 1; \
-	fi
-	mkdir -p $(RIKID_RAW_DIR) $(RIKID_PARQUET_DIR)
-	$(PYTHON_RIKID) $(RIKID_SCRIPTS)/pipeline.py \
-		--from $(FROM) --to $(TO) \
-		--raw-dir $(RIKID_RAW_DIR) \
-		--parquet-dir $(RIKID_PARQUET_DIR) \
-		--org-id "$(ORG_ID)" --vendor-id "$(VENDOR_ID)" --type-id "$(TYPE_ID)" \
-		--force-download
-	@echo "==> Detecting correction transactions..."
-	$(PYTHON) scripts/detect_corrections.py \
-		--input $(RIKID_PARQUET_DIR)/opnirreikningar.parquet \
-		--output $(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet
 
 rikid-anomalies:
 	mkdir -p $(RIKID_PARQUET_DIR)
-	$(PYTHON_RIKID) $(RIKID_SCRIPTS)/build_anomalies.py \
-		--input $(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet \
-		--out-flagged $(RIKID_PARQUET_DIR)/anomalies_flagged.parquet \
-		--out-all $(RIKID_PARQUET_DIR)/anomalies_yearly_all.parquet
+	@if [ -f "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet" ]; then \
+		echo "==> Building anomalies for Rikið..."; \
+		$(PYTHON) $(SCRIPTS)/detect_anomalies_rikid.py \
+			--input "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet" \
+			--output-all "$(RIKID_PARQUET_DIR)/anomalies_yearly_all.parquet" \
+			--output-flagged "$(RIKID_PARQUET_DIR)/anomalies_flagged.parquet"; \
+	fi
 
 # ── Reykjavík ────────────────────────────────────────────────────────────────
 
-reykjavik-pipeline: reykjavik-download reykjavik-prepare reykjavik-corrections reykjavik-lookup reykjavik-anomalies
-
-reykjavik-download:
-	mkdir -p $(RKV_RAW_DIR)
-	$(PYTHON_REYKJAVIK) $(REYKJAVIK_SCRIPTS)/download_arsuppgjor.py \
-		--raw-dir $(RKV_RAW_DIR)
-
-reykjavik-prepare:
+reykjavik-pipeline:
 	mkdir -p $(RKV_PROCESSED_DIR)
-	$(PYTHON_REYKJAVIK) $(REYKJAVIK_SCRIPTS)/prepare_arsuppgjor.py \
-		--raw-dir $(RKV_RAW_DIR) \
-		--processed-dir $(RKV_PROCESSED_DIR)
-
-reykjavik-corrections:
+	@echo "==> Downloading Reykjavík data from gagnagatt.reykjavik.is..."
+	$(PYTHON) $(SCRIPTS)/download_reykjavik.py \
+		--output "$(RKV_PROCESSED_DIR)/arsuppgjor_combined.parquet"
 	@echo "==> Detecting correction transactions..."
-	$(PYTHON) scripts/detect_corrections_reykjavik.py \
-		--input $(RKV_PROCESSED_DIR)/arsuppgjor_combined.parquet \
-		--output $(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet
-
-reykjavik-lookup:
-	$(PYTHON_REYKJAVIK) $(REYKJAVIK_SCRIPTS)/lookup_vm_entities.py \
-		--parquet $(RKV_PROCESSED_DIR)/arsuppgjor_combined.parquet \
-		--out     $(RKV_PROCESSED_DIR)/vm_entities.csv \
-		--cache   $(RKV_PROCESSED_DIR)/vm_entities.json
+	$(PYTHON) $(SCRIPTS)/detect_corrections_reykjavik.py \
+		--input "$(RKV_PROCESSED_DIR)/arsuppgjor_combined.parquet" \
+		--output "$(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet"
 
 reykjavik-anomalies:
-	$(PYTHON_REYKJAVIK) $(REYKJAVIK_SCRIPTS)/detect_anomalies.py \
-		--parquet $(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet \
-		--out-dir $(RKV_PROCESSED_DIR)
+	mkdir -p $(RKV_PROCESSED_DIR)
+	@if [ -f "$(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet" ]; then \
+		echo "==> Building anomalies for Reykjavík..."; \
+		$(PYTHON) $(SCRIPTS)/detect_anomalies_reykjavik.py \
+			--input "$(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet" \
+			--output-all "$(RKV_PROCESSED_DIR)/anomalies_yoy_all.parquet" \
+			--output-flagged "$(RKV_PROCESSED_DIR)/anomalies_flagged.parquet"; \
+	fi
+
+# ── Anomalies (rebuild for both) ──────────────────────────────────────────────
+
+anomalies: rikid-anomalies reykjavik-anomalies
