@@ -32,36 +32,12 @@ make anomalies            # Rebuild anomaly detection for both sources
 - Script: `scripts/download_reykjavik.py`
 - Status: Ready to use with `make reykjavik-pipeline`
 
-**Rikið** (Requires Manual Setup):
-- API: `https://opnirreikningar.is/rest/csvExport`
-- Script available: `scripts/download_rikid.py`
-- Note: API currently returns empty results—may be temporary issue or require authentication
-
-**Options for Rikið data:**
-
-1. **Manual Download** (Most Reliable):
-   ```bash
-   # Visit https://opnirreikningar.is/ and:
-   # 1. Set date range (e.g., 2017-01-01 to 2024-12-31)
-   # 2. Click "Flytja út" (Export) → Save Excel file
-   # 3. Convert to Parquet:
-   python3 -c "
-   import pandas as pd
-   df = pd.read_excel('opnirreikningar.xlsx')
-   df.to_parquet('data/rikid/parquet/opnirreikningar.parquet', index=False)
-   "
-   ```
-
-2. **Use API Script** (If endpoint returns data):
-   ```bash
-   make rikid-pipeline FROM=2017-01-01 TO=2024-12-31
-   # Or for a specific date range
-   .venv/bin/python3 scripts/download_rikid.py --from 2024-01-01 --to 2024-12-31
-   ```
-
-3. **Check Original Repo**:
-   - Original implementation: https://github.com/bjornlevi/rikid-opnir-reikningar
-   - May have pre-downloaded Parquet files or alternative approaches
+**Rikið** (✓ Fully Automated):
+- Source: `https://opnirreikningar.is/rest/csvExport` (REST API)
+- Downloads XLSX files in monthly chunks (handles 500k record limit)
+- Script: `scripts/download_rikid.py`
+- Status: Ready to use with `make rikid-pipeline`
+- Example: `make rikid-pipeline FROM=2024-01-01 TO=2024-12-31`
 
 ### Production
 ```bash
