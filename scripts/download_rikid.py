@@ -16,9 +16,10 @@ from datetime import timedelta
 try:
     import duckdb
     import requests
+    import pandas as pd
 except ImportError as e:
     print(f"Error: Required package not installed: {e}", file=sys.stderr)
-    print("Install with: pip install duckdb requests", file=sys.stderr)
+    print("Install with: pip install duckdb requests pandas openpyxl", file=sys.stderr)
     sys.exit(1)
 
 
@@ -127,66 +128,45 @@ def convert_to_parquet(content: bytes, output_path: Path, chunk_label: str) -> b
     sniff = content[:2048]
     file_format = guess_format("", sniff)
 
-    # Handle ZIP
+    # For ZIP (OOXML Excel files), treat as XLSX directly
+    # Don't try to extract individual files
     if file_format == "zip":
-        extracted = extract_from_zip(content)
-        if not extracted:
-            print(f"    No data in ZIP")
-            return False
-        content = extracted
-        # Re-detect after extraction
-        sniff = content[:2048]
-        file_format = guess_format("", sniff)
+        file_format = "xlsx"
 
-    # Write temp file for DuckDB to read
+    # Write temp file for pandas to read
     temp_path = output_path.with_suffix(".tmp")
+    if file_format == "xlsx":
+        temp_path = temp_path.with_suffix(".xlsx")
     temp_path.write_bytes(content)
 
     try:
-        con = duckdb.connect(":memory:")
+        df = None
 
-        # Try different readers
+        # Try CSV first
         try:
-            # Try CSV auto-detect first
-            result = con.execute(
-                f"SELECT COUNT(*) FROM read_csv_auto('{temp_path}', sample_size=-1)"
-            ).fetchone()
-            count = result[0] if result else 0
-
-            if count > 0:
-                con.execute(
-                    f"COPY (SELECT * FROM read_csv_auto('{temp_path}', sample_size=-1)) "
-                    f"TO '{output_path}' (FORMAT PARQUET)"
-                )
-                print(f"    Converted: {count} rows → {output_path.name}")
-                return True
-        except Exception as e1:
+            df = pd.read_csv(temp_path)
+        except Exception as e_csv:
+            # Try XLSX with pandas
             try:
-                # Try XLSX
-                result = con.execute(
-                    f"SELECT COUNT(*) FROM read_excel('{temp_path}')"
-                ).fetchone()
-                count = result[0] if result else 0
-
-                if count > 0:
-                    con.execute(
-                        f"COPY (SELECT * FROM read_excel('{temp_path}')) "
-                        f"TO '{output_path}' (FORMAT PARQUET)"
-                    )
-                    print(f"    Converted: {count} rows → {output_path.name}")
-                    return True
-            except Exception as e2:
-                print(f"    Both CSV and XLSX readers failed", file=sys.stderr)
+                df = pd.read_excel(temp_path)
+            except Exception as e_xlsx:
+                print(f"    Failed CSV: {str(e_csv)[:50]}", file=sys.stderr)
+                print(f"    Failed XLSX: {str(e_xlsx)[:50]}", file=sys.stderr)
                 return False
 
-        print(f"    No data rows found")
-        return False
+        if df is None or len(df) == 0:
+            print(f"    No data rows found")
+            return False
+
+        # Convert to Parquet using pandas
+        df.to_parquet(output_path, index=False, compression="snappy")
+        print(f"    Converted: {len(df)} rows → {output_path.name}")
+        return True
     except Exception as e:
         print(f"    Conversion error: {e}", file=sys.stderr)
         return False
     finally:
         temp_path.unlink(missing_ok=True)
-        con.close()
 
 
 def combine_chunks(chunks_dir: Path, output_file: Path) -> None:
@@ -238,15 +218,12 @@ def main():
         chunk_label = f"{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}"
 
         params = {
+            "vendor_id": args.vendor_id or "",
+            "type_id": args.type_id or "",
+            "org_id": args.org_id or "",
             "timabil_fra": fmt_export_date(start_date),
             "timabil_til": fmt_export_date(end_date),
         }
-        if args.org_id:
-            params["org_id"] = args.org_id
-        if args.vendor_id:
-            params["vendor_id"] = args.vendor_id
-        if args.type_id:
-            params["type_id"] = args.type_id
 
         content = download_chunk(args.export_url, params, chunk_label)
         if not content:
