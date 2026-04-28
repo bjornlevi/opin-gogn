@@ -42,19 +42,14 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
     """)
 
     # Find correction pairs: same buyer/vendor/type, opposite signs, similar amounts
+    # Use CAST to DOUBLE early to avoid INT64 overflow
     con.execute("""
     WITH pairs AS (
         SELECT
             a."Númer reiknings" as a_id,
             b."Númer reiknings" as b_id,
-            a."Kaupandi" as buyer,
-            a."Birgi" as vendor,
-            a."Tegund" as type,
-            a."Upphæð línu" as amount_a,
-            b."Upphæð línu" as amount_b,
-            ABS(CAST(a."Upphæð línu" AS DOUBLE)) as abs_a,
-            ABS(CAST(b."Upphæð línu" AS DOUBLE)) as abs_b,
-            DATEDIFF('day', CAST(a."Dags.greiðslu" AS DATE), CAST(b."Dags.greiðslu" AS DATE)) as days_apart
+            CAST(a."Upphæð línu" AS DOUBLE) as amount_a,
+            CAST(b."Upphæð línu" AS DOUBLE) as amount_b
         FROM data a
         JOIN data b ON
             a."Kaupandi" = b."Kaupandi" AND
@@ -62,7 +57,7 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
             a."Tegund" = b."Tegund" AND
             CAST(a."Dags.greiðslu" AS DATE) <= CAST(b."Dags.greiðslu" AS DATE) AND
             DATEDIFF('day', CAST(a."Dags.greiðslu" AS DATE), CAST(b."Dags.greiðslu" AS DATE)) <= 2 AND
-            a."Upphæð línu" * b."Upphæð línu" < 0  -- opposite signs
+            (CAST(a."Upphæð línu" AS DOUBLE) > 0) != (CAST(b."Upphæð línu" AS DOUBLE) > 0)  -- opposite signs
         WHERE
             ABS(CAST(a."Upphæð línu" AS DOUBLE)) > ? AND
             ABS(ABS(CAST(a."Upphæð línu" AS DOUBLE)) - ABS(CAST(b."Upphæð línu" AS DOUBLE))) < 1000  -- nearly equal
