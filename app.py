@@ -271,7 +271,7 @@ def create_app() -> Flask:
 
     @app.route("/rikid/")
     def rikid_explorer():
-        year = request.args.get("year", "all")
+        year = request.args.get("year", "all").rstrip("*")  # Remove asterisk indicator
         tegund = request.args.get("tegund", "all")
         buyer = request.args.get("buyer", "all")
         seller = request.args.get("seller", "all")
@@ -532,7 +532,7 @@ def create_app() -> Flask:
             focus = "buyer" if legacy_group in ("Kaupandi", "Birgi") else "tegund"
         focus_value = request.args.get("focus_value", "all")
         within_value = request.args.get("within_value", "all")
-        year = request.args.get("year", "all")
+        year = request.args.get("year", "all").rstrip("*")  # Remove asterisk indicator
         direction = request.args.get("direction", "all")
         min_change_pct = request.args.get("min_change_pct", request.args.get("min_change", ""))
         limit = max(1, min(500, int(request.args.get("limit", 50))))
@@ -815,7 +815,7 @@ def create_app() -> Flask:
 
     @app.route("/rikid/reports")
     def rikid_reports():
-        year = request.args.get("year", "all")
+        year = request.args.get("year", "all").rstrip("*")  # Remove asterisk indicator
         mode = request.args.get("mode", "tegund")  # tegund | buyer
         show_corrections = request.args.get("show_corrections", "false").lower() == "true"
 
