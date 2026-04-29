@@ -193,7 +193,7 @@ def rikid_dn(col: str) -> str:
 # REYKJAVIK
 # ===========================================================================
 
-RKV_AMOUNT_EXPR = "TRY_CAST(REPLACE(REPLACE(raun, '.', ''), ',', '.') AS DOUBLE)"
+RKV_AMOUNT_EXPR = "raun"
 RKV_SUPPLIER_EXPR = (
     "COALESCE(NULLIF(TRIM(vm_nafn), ''), "
     "NULLIF(TRIM(fyrirtaeki), ''), "
