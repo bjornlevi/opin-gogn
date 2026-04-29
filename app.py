@@ -1725,18 +1725,17 @@ def create_app() -> Flask:
                                    data_loaded=True, level=0, selected_year=year, selected_value=value,
                                    years=years, rows=rows, explorer_base="")
         else:
-            # Level 1: for sellers, show by organization if available, otherwise by unit
+            # Level 1: drill by expense type hierarchy (tgr1)
             rows = con.execute(
-                f'SELECT CASE WHEN samtala0 IS NOT NULL THEN samtala0 ELSE COALESCE(eining1, \'(óskráð)\') END AS category, '
+                f'SELECT COALESCE(xtgr1, CAST(tgr1 AS VARCHAR), \'(óskráð)\') AS category, '
                 f'SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
                 f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? '
-                f'GROUP BY CASE WHEN samtala0 IS NOT NULL THEN samtala0 ELSE COALESCE(eining1, \'(óskráð)\') END '
-                f'ORDER BY total DESC',
+                f'GROUP BY tgr1, xtgr1 ORDER BY total DESC',
                 [value]
             ).fetchall()
             return render_template("drilldown.html", source="reykjavik", page_id="sellers",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
-                                   years=years, rows=rows, drill_label="Kategórí",
+                                   years=years, rows=rows, drill_label="Tegund útgjalda",
                                    explorer_base="/reykjavik/", explorer_type_param="seller", explorer_buyer_param="buyer")
 
     return app
