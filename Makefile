@@ -116,6 +116,13 @@ anomalies: rikid-anomalies reykjavik-anomalies
 
 enrich-vat: enrich-vat-rikid enrich-vat-reykjavik
 
+find-vat-id-numbers:
+	@echo "==> Finding VAT ID numbers for sellers (Birgi) from both Rikið and Reykjavík..."
+	$(PYTHON) $(SCRIPTS)/enrich_rikid_vat_from_api.py \
+		--rikid-input "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet" \
+		--reykjavik-input "$(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet" \
+		--output "$(RIKID_PARQUET_DIR)/vat_lookup_combined.parquet"
+
 enrich-vat-rikid:
 	@echo "==> Enriching VAT numbers in Rikið data..."
 	$(PYTHON) $(SCRIPTS)/enrich_rikid_vat.py \

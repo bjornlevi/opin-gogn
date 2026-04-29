@@ -32,7 +32,11 @@ RIKID_ANOMALIES_ALL = Path(
 )
 RIKID_VAT_ENRICHED = Path(
     os.getenv("RIKID_VAT_ENRICHED",
-              str(BASE_DIR / "data/rikid/parquet/opnirreikningar_with_corrections_vat_enriched.parquet"))
+              str(BASE_DIR / "data/rikid/parquet/vat_lookup_combined.parquet"))
+)
+REYKJAVIK_VAT_ENRICHED = Path(
+    os.getenv("REYKJAVIK_VAT_ENRICHED",
+              str(BASE_DIR / "data/rikid/parquet/vat_lookup_combined.parquet"))
 )
 REYKJAVIK_DATA = Path(
     os.getenv("REYKJAVIK_PARQUET",
@@ -45,10 +49,6 @@ REYKJAVIK_ANOMALIES = Path(
 REYKJAVIK_ANOMALIES_ALL = Path(
     os.getenv("REYKJAVIK_ANOMALIES_ALL",
               str(BASE_DIR / "data/reykjavik/processed/anomalies_yoy_all.parquet"))
-)
-REYKJAVIK_VAT_ENRICHED = Path(
-    os.getenv("REYKJAVIK_VAT_ENRICHED",
-              str(BASE_DIR / "data/reykjavik/processed/arsuppgjor_combined_with_corrections_vat_enriched.parquet"))
 )
 
 # ---------------------------------------------------------------------------
