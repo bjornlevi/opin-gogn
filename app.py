@@ -1685,7 +1685,7 @@ def create_app() -> Flask:
                                    data_loaded=True, level=0, selected_year=year, selected_value=value,
                                    years=years, rows=rows, explorer_base="")
         else:
-            # Level 1: departments for selected type
+            # Level 1: organizations for selected type
             rows = con.execute(
                 f'SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
                 f'FROM data {where_base} AND tegund0 = ? '
@@ -1694,7 +1694,7 @@ def create_app() -> Flask:
             ).fetchall()
             return render_template("drilldown.html", source="reykjavik", page_id="types",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
-                                   years=years, rows=rows, drill_label="Deild",
+                                   years=years, rows=rows, drill_label="Stofnun",
                                    explorer_base="/reykjavik/", explorer_type_param="tegund", explorer_buyer_param="buyer")
 
     @app.route("/reykjavik/sellers")
@@ -1725,7 +1725,7 @@ def create_app() -> Flask:
                                    data_loaded=True, level=0, selected_year=year, selected_value=value,
                                    years=years, rows=rows, explorer_base="")
         else:
-            # Level 1: departments for selected seller
+            # Level 1: organizations for selected seller
             rows = con.execute(
                 f'SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
                 f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? '
@@ -1734,7 +1734,7 @@ def create_app() -> Flask:
             ).fetchall()
             return render_template("drilldown.html", source="reykjavik", page_id="sellers",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
-                                   years=years, rows=rows, drill_label="Deild",
+                                   years=years, rows=rows, drill_label="Stofnun",
                                    explorer_base="/reykjavik/", explorer_type_param="seller", explorer_buyer_param="buyer")
 
     return app
