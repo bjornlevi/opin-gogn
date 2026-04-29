@@ -30,6 +30,10 @@ RIKID_ANOMALIES_ALL = Path(
     os.getenv("RIKID_ANOMALIES_ALL",
               str(BASE_DIR / "data/rikid/parquet/anomalies_yearly_all.parquet"))
 )
+RIKID_VAT_ENRICHED = Path(
+    os.getenv("RIKID_VAT_ENRICHED",
+              str(BASE_DIR / "data/rikid/parquet/opnirreikningar_with_corrections_vat_enriched.parquet"))
+)
 REYKJAVIK_DATA = Path(
     os.getenv("REYKJAVIK_PARQUET",
               str(BASE_DIR / "data/reykjavik/processed/arsuppgjor_combined_with_corrections.parquet"))
@@ -1648,13 +1652,35 @@ def create_app() -> Flask:
 
         if not value:
             # Level 0: all sellers
-            rows = con.execute(
-                f'SELECT "Birgi", SUM({RIKID_AMOUNT}) AS total, COUNT(*) AS cnt '
-                f'FROM data {where_base} GROUP BY "Birgi" ORDER BY total DESC'
-            ).fetchall()
+            # Try to load VAT lookup for enrichment
+            has_vat = False
+            if RIKID_VAT_ENRICHED.exists():
+                con.execute(f"CREATE VIEW vat_lookup AS SELECT * FROM read_parquet('{safe_path(RIKID_VAT_ENRICHED)}')")
+                has_vat = True
+
+            # Build query with optional VAT join
+            if has_vat:
+                query = (
+                    f'SELECT d.seller_name, d.total, d.cnt, '
+                    f'v.vm_numer, '
+                    f'CASE WHEN v.vm_numer IS NOT NULL THEN \'https://www.skatturinn.is/fyrirtaekjaskra/leit/vsk-numer/\' || CAST(v.vm_numer AS VARCHAR) ELSE NULL END AS vsk_link '
+                    f'FROM (SELECT "Birgi" AS seller_name, SUM({RIKID_AMOUNT}) AS total, COUNT(*) AS cnt '
+                    f'FROM data {where_base} GROUP BY seller_name) d '
+                    f'LEFT JOIN (SELECT seller_name, MIN(vm_numer) AS vm_numer '
+                    f'FROM vat_lookup GROUP BY seller_name) v ON d.seller_name = v.seller_name '
+                    f'ORDER BY d.total DESC'
+                )
+            else:
+                query = (
+                    f'SELECT "Birgi" AS seller_name, SUM({RIKID_AMOUNT}) AS total, COUNT(*) AS cnt, '
+                    f'NULL AS vm_numer, NULL AS vsk_link '
+                    f'FROM data {where_base} GROUP BY seller_name ORDER BY total DESC'
+                )
+
+            rows = con.execute(query).fetchall()
             return render_template("drilldown.html", source="rikid", page_id="sellers",
                                    data_loaded=True, level=0, selected_year=year, selected_value=value,
-                                   years=years, rows=rows, explorer_base="")
+                                   years=years, rows=rows, explorer_base="", has_vat=has_vat)
         else:
             # Level 1: buyers for selected seller
             rows = con.execute(
