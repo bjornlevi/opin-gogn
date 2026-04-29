@@ -1725,17 +1725,37 @@ def create_app() -> Flask:
                                    data_loaded=True, level=0, selected_year=year, selected_value=value,
                                    years=years, rows=rows, explorer_base="")
         else:
-            # Level 1: drill by expense type hierarchy (tgr1)
-            rows = con.execute(
-                f'SELECT COALESCE(xtgr1, CAST(tgr1 AS VARCHAR), \'(óskráð)\') AS category, '
-                f'SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
-                f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? '
-                f'GROUP BY tgr1, xtgr1 ORDER BY total DESC',
+            # Level 1: drill by whatever hierarchy is available (expense type or organization)
+            # First check if this supplier has expense type data
+            has_types = con.execute(
+                f'SELECT COUNT(*) FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? AND tgr1 IS NOT NULL',
                 [value]
-            ).fetchall()
+            ).fetchone()[0] > 0
+
+            if has_types:
+                # Drill by expense type (tgr1)
+                rows = con.execute(
+                    f'SELECT COALESCE(xtgr1, CAST(tgr1 AS VARCHAR), \'(óskráð)\') AS category, '
+                    f'SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
+                    f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? '
+                    f'GROUP BY tgr1, xtgr1 ORDER BY total DESC',
+                    [value]
+                ).fetchall()
+                drill_label = "Tegund útgjalda"
+            else:
+                # Drill by organization (samtala0)
+                rows = con.execute(
+                    f'SELECT COALESCE(samtala0, \'(óskráð)\') AS category, '
+                    f'SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
+                    f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? '
+                    f'GROUP BY samtala0 ORDER BY total DESC',
+                    [value]
+                ).fetchall()
+                drill_label = "Stofnun"
+
             return render_template("drilldown.html", source="reykjavik", page_id="sellers",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
-                                   years=years, rows=rows, drill_label="Tegund útgjalda",
+                                   years=years, rows=rows, drill_label=drill_label,
                                    explorer_base="/reykjavik/", explorer_type_param="seller", explorer_buyer_param="buyer")
 
     return app
