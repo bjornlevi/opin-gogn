@@ -42,6 +42,10 @@ REYKJAVIK_ANOMALIES_ALL = Path(
     os.getenv("REYKJAVIK_ANOMALIES_ALL",
               str(BASE_DIR / "data/reykjavik/processed/anomalies_yoy_all.parquet"))
 )
+REYKJAVIK_VAT_ENRICHED = Path(
+    os.getenv("REYKJAVIK_VAT_ENRICHED",
+              str(BASE_DIR / "data/reykjavik/processed/arsuppgjor_combined_with_corrections_vat_enriched.parquet"))
+)
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -103,6 +107,17 @@ def build_where(conditions: list[tuple[str, object]]) -> tuple[str, list]:
             params.append(val)
     sql = "WHERE " + " AND ".join(clauses) if clauses else ""
     return sql, params
+
+
+def load_vat_lookup() -> duckdb.DuckDBPyConnection | None:
+    """Load the VAT lookup table if it exists. Returns a connection or None."""
+    if not REYKJAVIK_VAT_ENRICHED.exists():
+        return None
+    con = duckdb.connect(":memory:")
+    con.execute(
+        f"CREATE VIEW vat_lookup AS SELECT * FROM read_parquet('{safe_path(REYKJAVIK_VAT_ENRICHED)}')"
+    )
+    return con
 
 
 def _rikid_headline() -> dict:
@@ -1717,13 +1732,35 @@ def create_app() -> Flask:
 
         if not value:
             # Level 0: all sellers
-            rows = con.execute(
-                f'SELECT {RKV_SUPPLIER_EXPR} AS supplier_name, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
-                f'FROM data {where_base} GROUP BY supplier_name ORDER BY total DESC'
-            ).fetchall()
+            # Try to load VAT lookup for enrichment
+            has_vat = False
+            if REYKJAVIK_VAT_ENRICHED.exists():
+                con.execute(f"CREATE VIEW vat_lookup AS SELECT * FROM read_parquet('{safe_path(REYKJAVIK_VAT_ENRICHED)}')")
+                has_vat = True
+
+            # Build query with optional VAT join
+            if has_vat:
+                query = (
+                    f'SELECT d.supplier_name, d.total, d.cnt, '
+                    f'v.vm_numer, '
+                    f'CASE WHEN v.vm_numer IS NOT NULL THEN \'https://www.skatturinn.is/fyrirtaekjaskra/leit/vsk-numer/\' || CAST(v.vm_numer AS VARCHAR) ELSE NULL END AS vsk_link '
+                    f'FROM (SELECT {RKV_SUPPLIER_EXPR} AS supplier_name, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
+                    f'FROM data {where_base} GROUP BY supplier_name) d '
+                    f'LEFT JOIN (SELECT supplier_name, MIN(vm_numer) AS vm_numer '
+                    f'FROM vat_lookup GROUP BY supplier_name) v ON d.supplier_name = v.supplier_name '
+                    f'ORDER BY d.total DESC'
+                )
+            else:
+                query = (
+                    f'SELECT {RKV_SUPPLIER_EXPR} AS supplier_name, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt, '
+                    f'NULL AS vm_numer, NULL AS vsk_link '
+                    f'FROM data {where_base} GROUP BY supplier_name ORDER BY total DESC'
+                )
+
+            rows = con.execute(query).fetchall()
             return render_template("drilldown.html", source="reykjavik", page_id="sellers",
                                    data_loaded=True, level=0, selected_year=year, selected_value=value,
-                                   years=years, rows=rows, explorer_base="")
+                                   years=years, rows=rows, explorer_base="", has_vat=has_vat)
         else:
             # Level 1: drill by whatever hierarchy is available (expense type or organization)
             # First check if this supplier has expense type data

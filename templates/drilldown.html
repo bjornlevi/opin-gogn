@@ -36,6 +36,7 @@
           <thead>
             <tr>
               <th>{% if level == 0 %}{% if page_id == 'types' %}Tegund{% else %}Birgi{% endif %}{% else %}{{ drill_label }}{% endif %}</th>
+              {% if level == 0 and has_vat and page_id == 'sellers' %}<th class="num">VSK-númer</th>{% endif %}
               <th class="num">Heildarupphæð</th>
               <th class="num">Línur</th>
             </tr>
@@ -50,6 +51,17 @@
                   <a href="{{ explorer_base }}?{{ explorer_type_param }}={{ selected_value }}&{{ explorer_buyer_param }}={{ row[0] }}{% if selected_year != 'all' %}&year={{ selected_year }}{% endif %}">{{ row[0] or '(tómt)' }}</a>
                 {% endif %}
               </td>
+              {% if level == 0 and has_vat and page_id == 'sellers' %}
+              <td class="num">
+                {% if row[3] and row[4] %}
+                  <a href="{{ row[4] }}" target="_blank" style="color: var(--accent-reykjavik);">{{ row[3] }}</a>
+                {% elif row[3] %}
+                  {{ row[3] }}
+                {% else %}
+                  –
+                {% endif %}
+              </td>
+              {% endif %}
               <td class="num">{{ fmt(row[1]) }}</td>
               <td class="num">{{ row[2] }}</td>
             </tr>

@@ -111,3 +111,11 @@ reykjavik-anomalies:
 # ── Anomalies (rebuild for both) ──────────────────────────────────────────────
 
 anomalies: rikid-anomalies reykjavik-anomalies
+
+# ── VAT enrichment (optional, separate from main pipeline) ───────────────────
+
+enrich-vat:
+	@echo "==> Enriching VAT numbers in Reykjavík data..."
+	$(PYTHON) $(SCRIPTS)/enrich_vat_numbers.py \
+		--input "$(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections.parquet" \
+		--output "$(RKV_PROCESSED_DIR)/arsuppgjor_combined_with_corrections_vat_enriched.parquet"
