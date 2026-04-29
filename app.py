@@ -193,7 +193,7 @@ def rikid_dn(col: str) -> str:
 # REYKJAVIK
 # ===========================================================================
 
-RKV_AMOUNT_EXPR = "raun"  # raun is already numeric after download processing
+RKV_AMOUNT_EXPR = "TRY_CAST(REPLACE(REPLACE(raun, '.', ''), ',', '.') AS DOUBLE)"
 RKV_SUPPLIER_EXPR = (
     "COALESCE(NULLIF(TRIM(vm_nafn), ''), "
     "NULLIF(TRIM(fyrirtaeki), ''), "
@@ -1568,6 +1568,174 @@ def create_app() -> Flask:
             mode_label="Tegundaflokkur" if mode == "tegund" else "Svið",
             dn=rkv_dn,
         )
+
+    # =========================================================================
+    # RIKID DRILLDOWNS
+    # =========================================================================
+
+    @app.route("/rikid/types")
+    def rikid_types():
+        year = request.args.get("year", "all")
+        value = request.args.get("value", "")
+
+        con = open_rikid_con(RIKID_DATA)
+        if con is None:
+            return render_template("drilldown.html", source="rikid", page_id="types",
+                                   data_loaded=False, error=f"Gögn finnast ekki: {RIKID_DATA}")
+
+        years = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+
+        where_base = "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+        if year != "all":
+            where_base += f" AND year = {int(year) if year.isdigit() else 0}"
+
+        if not value:
+            # Level 0: all types
+            rows = con.execute(
+                f'SELECT "Tegund", SUM({RIKID_AMOUNT}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} GROUP BY "Tegund" ORDER BY total DESC'
+            ).fetchall()
+            return render_template("drilldown.html", source="rikid", page_id="types",
+                                   data_loaded=True, level=0, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, explorer_base="")
+        else:
+            # Level 1: buyers for selected type
+            rows = con.execute(
+                f'SELECT "Kaupandi", SUM({RIKID_AMOUNT}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} AND "Tegund" = ? '
+                f'GROUP BY "Kaupandi" ORDER BY total DESC',
+                [value]
+            ).fetchall()
+            return render_template("drilldown.html", source="rikid", page_id="types",
+                                   data_loaded=True, level=1, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, drill_label="Kaupandi",
+                                   explorer_base="/rikid/", explorer_type_param="tegund", explorer_buyer_param="buyer")
+
+    @app.route("/rikid/sellers")
+    def rikid_sellers():
+        year = request.args.get("year", "all")
+        value = request.args.get("value", "")
+
+        con = open_rikid_con(RIKID_DATA)
+        if con is None:
+            return render_template("drilldown.html", source="rikid", page_id="sellers",
+                                   data_loaded=False, error=f"Gögn finnast ekki: {RIKID_DATA}")
+
+        years = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+
+        where_base = "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+        if year != "all":
+            where_base += f" AND year = {int(year) if year.isdigit() else 0}"
+
+        if not value:
+            # Level 0: all sellers
+            rows = con.execute(
+                f'SELECT "Birgi", SUM({RIKID_AMOUNT}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} GROUP BY "Birgi" ORDER BY total DESC'
+            ).fetchall()
+            return render_template("drilldown.html", source="rikid", page_id="sellers",
+                                   data_loaded=True, level=0, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, explorer_base="")
+        else:
+            # Level 1: buyers for selected seller
+            rows = con.execute(
+                f'SELECT "Kaupandi", SUM({RIKID_AMOUNT}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} AND "Birgi" = ? '
+                f'GROUP BY "Kaupandi" ORDER BY total DESC',
+                [value]
+            ).fetchall()
+            return render_template("drilldown.html", source="rikid", page_id="sellers",
+                                   data_loaded=True, level=1, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, drill_label="Kaupandi",
+                                   explorer_base="/rikid/", explorer_type_param="seller", explorer_buyer_param="buyer")
+
+    # =========================================================================
+    # REYKJAVIK DRILLDOWNS
+    # =========================================================================
+
+    @app.route("/reykjavik/types")
+    def rkv_types():
+        year = request.args.get("year", "all")
+        value = request.args.get("value", "")
+
+        con = open_con(REYKJAVIK_DATA)
+        if con is None:
+            return render_template("drilldown.html", source="reykjavik", page_id="types",
+                                   data_loaded=False, error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
+
+        years = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+
+        where_base = "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+        if year != "all":
+            where_base += f" AND year = {int(year) if year.isdigit() else 0}"
+
+        if not value:
+            # Level 0: all types
+            rows = con.execute(
+                f'SELECT tegund0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} GROUP BY tegund0 ORDER BY total DESC'
+            ).fetchall()
+            return render_template("drilldown.html", source="reykjavik", page_id="types",
+                                   data_loaded=True, level=0, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, explorer_base="")
+        else:
+            # Level 1: departments for selected type
+            rows = con.execute(
+                f'SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} AND tegund0 = ? '
+                f'GROUP BY samtala0 ORDER BY total DESC',
+                [value]
+            ).fetchall()
+            return render_template("drilldown.html", source="reykjavik", page_id="types",
+                                   data_loaded=True, level=1, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, drill_label="Deild",
+                                   explorer_base="/reykjavik/", explorer_type_param="tegund", explorer_buyer_param="buyer")
+
+    @app.route("/reykjavik/sellers")
+    def rkv_sellers():
+        year = request.args.get("year", "all")
+        value = request.args.get("value", "")
+
+        con = open_con(REYKJAVIK_DATA)
+        if con is None:
+            return render_template("drilldown.html", source="reykjavik", page_id="sellers",
+                                   data_loaded=False, error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
+
+        years = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+
+        where_base = "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+        if year != "all":
+            where_base += f" AND year = {int(year) if year.isdigit() else 0}"
+
+        if not value:
+            # Level 0: all sellers
+            rows = con.execute(
+                f'SELECT {RKV_SUPPLIER_EXPR} AS supplier_name, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} GROUP BY supplier_name ORDER BY total DESC'
+            ).fetchall()
+            return render_template("drilldown.html", source="reykjavik", page_id="sellers",
+                                   data_loaded=True, level=0, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, explorer_base="")
+        else:
+            # Level 1: departments for selected seller
+            rows = con.execute(
+                f'SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
+                f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? '
+                f'GROUP BY samtala0 ORDER BY total DESC',
+                [value]
+            ).fetchall()
+            return render_template("drilldown.html", source="reykjavik", page_id="sellers",
+                                   data_loaded=True, level=1, selected_year=year, selected_value=value,
+                                   years=years, rows=rows, drill_label="Deild",
+                                   explorer_base="/reykjavik/", explorer_type_param="seller", explorer_buyer_param="buyer")
 
     return app
 

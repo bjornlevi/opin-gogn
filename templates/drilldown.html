@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="page-header">
+  <h1>{% if page_id == 'types' %}Tegund útgjalda{% else %}Birgi{% endif %}</h1>
+  <p>{% if level == 0 %}Samansöfnun alls gjalds eftir {% if page_id == 'types' %}tegund{% else %}birgi{% endif %}{% else %}Kaupandi fyrir {{ selected_value }}{% endif %}</p>
+</div>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <div class="ctrl-label">Ár</div>
+      <div class="pill-grid">
+        <a href="?{% if level == 1 %}value={{ selected_value }}&{% endif %}year=all" class="pill{% if selected_year == 'all' %} active{% endif %}">Öll</a>
+        {% for y in years %}
+          <a href="?{% if level == 1 %}value={{ selected_value }}&{% endif %}year={{ y }}" class="pill{% if selected_year == y %} active{% endif %}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div>
+    {% if level == 1 %}
+    <div class="panel" style="margin-bottom: 16px;">
+      <a href="?{% if selected_year != 'all' %}year={{ selected_year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Til baka</a>
+      <span style="color: var(--muted);">›</span>
+      <span style="font-weight: 600;">{{ selected_value }}</span>
+    </div>
+    {% endif %}
+
+    <div class="panel">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>{% if level == 0 %}{% if page_id == 'types' %}Tegund{% else %}Birgi{% endif %}{% else %}{{ drill_label }}{% endif %}</th>
+              <th class="num">Heildarupphæð</th>
+              <th class="num">Línur</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td>
+                {% if level == 0 %}
+                  <a href="?value={{ row[0] }}{% if selected_year != 'all' %}&year={{ selected_year }}{% endif %}">{{ row[0] or '(tómt)' }}</a>
+                {% else %}
+                  <a href="{{ explorer_base }}?{{ explorer_type_param }}={{ selected_value }}&{{ explorer_buyer_param }}={{ row[0] }}{% if selected_year != 'all' %}&year={{ selected_year }}{% endif %}">{{ row[0] or '(tómt)' }}</a>
+                {% endif %}
+              </td>
+              <td class="num">{{ fmt(row[1]) }}</td>
+              <td class="num">{{ row[2] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if not rows %}
+      <div class="empty">Engin gögn fyrir þessa síu</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

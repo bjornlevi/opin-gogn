@@ -452,15 +452,19 @@
 {% if source is defined %}
 <nav class="page-nav">
   {% if source == 'rikid' %}
-    <a href="{{ url_for('rikid_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Explorer</a>
-    <a href="{{ url_for('rikid_analysis') }}"  {% if page_id == 'analysis' %}class="active"{% endif %}>Analysis</a>
-    <a href="{{ url_for('rikid_anomalies') }}" {% if page_id == 'anomalies' %}class="active"{% endif %}>Anomalies</a>
-    <a href="{{ url_for('rikid_reports') }}"   {% if page_id == 'reports' %}class="active"{% endif %}>Reports</a>
+    <a href="{{ url_for('rikid_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Skoðun</a>
+    <a href="{{ url_for('rikid_types') }}"     {% if page_id == 'types' %}class="active"{% endif %}>Tegund útgjalda</a>
+    <a href="{{ url_for('rikid_sellers') }}"   {% if page_id == 'sellers' %}class="active"{% endif %}>Birgi</a>
+    <a href="{{ url_for('rikid_analysis') }}"  {% if page_id == 'analysis' %}class="active"{% endif %}>Greining</a>
+    <a href="{{ url_for('rikid_anomalies') }}" {% if page_id == 'anomalies' %}class="active"{% endif %}>Frávik</a>
+    <a href="{{ url_for('rikid_reports') }}"   {% if page_id == 'reports' %}class="active"{% endif %}>Skýrslur</a>
   {% else %}
-    <a href="{{ url_for('rkv_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Explorer</a>
-    <a href="{{ url_for('rkv_analysis') }}"  {% if page_id == 'analysis' %}class="active"{% endif %}>Analysis</a>
-    <a href="{{ url_for('rkv_anomalies') }}" {% if page_id == 'anomalies' %}class="active"{% endif %}>Anomalies</a>
-    <a href="{{ url_for('rkv_reports') }}"   {% if page_id == 'reports' %}class="active"{% endif %}>Reports</a>
+    <a href="{{ url_for('rkv_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Skoðun</a>
+    <a href="{{ url_for('rkv_types') }}"     {% if page_id == 'types' %}class="active"{% endif %}>Tegund útgjalda</a>
+    <a href="{{ url_for('rkv_sellers') }}"   {% if page_id == 'sellers' %}class="active"{% endif %}>Birgi</a>
+    <a href="{{ url_for('rkv_analysis') }}"  {% if page_id == 'analysis' %}class="active"{% endif %}>Greining</a>
+    <a href="{{ url_for('rkv_anomalies') }}" {% if page_id == 'anomalies' %}class="active"{% endif %}>Frávik</a>
+    <a href="{{ url_for('rkv_reports') }}"   {% if page_id == 'reports' %}class="active"{% endif %}>Skýrslur</a>
   {% endif %}
 </nav>
 {% endif %}
