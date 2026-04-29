@@ -1611,7 +1611,7 @@ def create_app() -> Flask:
             return render_template("drilldown.html", source="rikid", page_id="types",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
                                    years=years, rows=rows, drill_label="Kaupandi",
-                                   explorer_base="/rikid/", explorer_type_param="tegund", explorer_buyer_param="buyer")
+                                   explorer_base=url_for('rikid_explorer'), explorer_type_param="tegund", explorer_buyer_param="buyer")
 
     @app.route("/rikid/sellers")
     def rikid_sellers():
@@ -1651,7 +1651,7 @@ def create_app() -> Flask:
             return render_template("drilldown.html", source="rikid", page_id="sellers",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
                                    years=years, rows=rows, drill_label="Kaupandi",
-                                   explorer_base="/rikid/", explorer_type_param="seller", explorer_buyer_param="buyer")
+                                   explorer_base=url_for('rikid_explorer'), explorer_type_param="seller", explorer_buyer_param="buyer")
 
     # =========================================================================
     # REYKJAVIK DRILLDOWNS
@@ -1695,7 +1695,7 @@ def create_app() -> Flask:
             return render_template("drilldown.html", source="reykjavik", page_id="types",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
                                    years=years, rows=rows, drill_label="Stofnun",
-                                   explorer_base="/reykjavik/", explorer_type_param="tegund", explorer_buyer_param="buyer")
+                                   explorer_base=url_for('rkv_explorer'), explorer_type_param="tegund", explorer_buyer_param="buyer")
 
     @app.route("/reykjavik/sellers")
     def rkv_sellers():
@@ -1756,7 +1756,7 @@ def create_app() -> Flask:
             return render_template("drilldown.html", source="reykjavik", page_id="sellers",
                                    data_loaded=True, level=1, selected_year=year, selected_value=value,
                                    years=years, rows=rows, drill_label=drill_label,
-                                   explorer_base="/reykjavik/", explorer_type_param="seller", explorer_buyer_param="buyer")
+                                   explorer_base=url_for('rkv_explorer'), explorer_type_param="seller", explorer_buyer_param="buyer")
 
     return app
 
