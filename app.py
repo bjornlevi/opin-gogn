@@ -1688,7 +1688,7 @@ def create_app() -> Flask:
             # Level 1: organizations for selected type
             rows = con.execute(
                 f'SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
-                f'FROM data {where_base} AND tegund0 = ? '
+                f'FROM data {where_base} AND tegund0 = ? AND samtala0 IS NOT NULL '
                 f'GROUP BY samtala0 ORDER BY total DESC',
                 [value]
             ).fetchall()
@@ -1728,7 +1728,7 @@ def create_app() -> Flask:
             # Level 1: organizations for selected seller
             rows = con.execute(
                 f'SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt '
-                f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? '
+                f'FROM data {where_base} AND ({RKV_SUPPLIER_EXPR}) = ? AND samtala0 IS NOT NULL '
                 f'GROUP BY samtala0 ORDER BY total DESC',
                 [value]
             ).fetchall()
