@@ -4,8 +4,8 @@
 
 {% block body %}
 <div class="page-header">
-  <h1>Viðhald — Leikskólar</h1>
-  <p>{% if level == 0 %}Viðhaldskostnaður alls deilda og sviða{% elif level == 1 %}Útgjöld eftir tegund fyrir {{ leikskoli }}{% else %}Einstakar færslur{% endif %}</p>
+  <h1>Leikskólar og dagforeldrar — viðhald</h1>
+  <p>{% if level == 0 %}Viðhaldskostnaður alls stofnana{% elif level == 1 %}Útgjöld eftir tegund fyrir {{ leikskoli }}{% else %}Einstakar færslur{% endif %}</p>
 </div>
 
 <div class="layout">
@@ -26,7 +26,7 @@
   <div>
     {% if level >= 1 %}
     <div class="panel" style="margin-bottom: 16px;">
-      <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Allt</a>
+      <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Stofnanir</a>
       <span style="color: var(--muted);">›</span>
       <span style="font-weight: 600;">{{ leikskoli }}</span>
       {% if level >= 2 %}
@@ -36,13 +36,39 @@
     </div>
     {% endif %}
 
+    <div class="panel" style="margin-bottom: 16px; padding: 20px;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+        <div>
+          <div style="color: var(--muted); font-size: 0.875rem; margin-bottom: 4px;">Heildarupphæð</div>
+          <div style="font-size: 1.5rem; font-weight: 600;">{{ fmt(total_amount) }}</div>
+        </div>
+        <div>
+          <div style="color: var(--muted); font-size: 0.875rem; margin-bottom: 4px;">Fjöldi færslu</div>
+          <div style="font-size: 1.5rem; font-weight: 600;">{{ total_count }}</div>
+        </div>
+      </div>
+      {% if yearly %}
+      <div>
+        <div style="color: var(--muted); font-size: 0.875rem; margin-bottom: 8px;">Ár fyrir ár</div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px;">
+          {% for yr, amt in yearly %}
+          <div style="padding: 8px; background: var(--accent-light); border-radius: 6px; text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--muted); margin-bottom: 2px;">{{ yr }}</div>
+            <div style="font-weight: 600; font-size: 0.875rem;">{{ fmt(amt) }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
     <div class="panel">
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>
-                {% if level == 0 %}Deild/Svið
+                {% if level == 0 %}Stofnun
                 {% elif level == 1 %}Tegundaflokkur
                 {% else %}Ár
                 {% endif %}

@@ -1603,7 +1603,8 @@ def create_app() -> Flask:
 
         base_clauses = [
             "(is_correction = FALSE OR is_correction IS NULL)",
-            "samtala0 = 'Viðhald - Leikskólar'",
+            "samtala2_canonical = 'Leikskólar og dagforeldrar'",
+            "tegund3 = 'Viðhald og framkvæmdir'",
         ]
         base_params = []
         if year != "all":
@@ -1616,18 +1617,18 @@ def create_app() -> Flask:
             return "WHERE " + " AND ".join(all_clauses), all_params
 
         if not leikskoli:
-            # Level 0: per-division totals (samtala1 groups)
+            # Level 0: per-institution totals
             w, p = where()
             rows = con.execute(
-                f"SELECT samtala1, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
-                f"FROM data {w} AND samtala1 IS NOT NULL "
-                f"GROUP BY samtala1 ORDER BY total DESC", p
+                f"SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
+                f"FROM data {w} AND samtala0 IS NOT NULL "
+                f"GROUP BY samtala0 ORDER BY total DESC", p
             ).fetchall()
             level = 0
 
         elif not tegund:
-            # Level 1: expense type breakdown for selected division
-            w, p = where(["samtala1 = ?"], [leikskoli])
+            # Level 1: expense type breakdown for selected institution
+            w, p = where(["samtala0 = ?"], [leikskoli])
             rows = con.execute(
                 f"SELECT tegund0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
                 f"FROM data {w} AND tegund0 IS NOT NULL "
@@ -1637,7 +1638,7 @@ def create_app() -> Flask:
 
         else:
             # Level 2: individual records with full details
-            w, p = where(["samtala1 = ?", "tegund0 = ?"], [leikskoli, tegund])
+            w, p = where(["samtala0 = ?", "tegund0 = ?"], [leikskoli, tegund])
             raw = con.execute(
                 f"SELECT year, vm_nafn, fyrirtaeki, CAST(vm_numer AS VARCHAR) AS vm_numer, "
                 f"raun, samtala0, samtala1, samtala2_canonical, samtala3, "
@@ -1669,10 +1670,27 @@ def create_app() -> Flask:
             ]
             level = 2
 
+        # Calculate totals and year breakdown
+        w, p = where()
+        total_result = con.execute(
+            f"SELECT SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt FROM data {w}",
+            p
+        ).fetchone()
+        total_amount = total_result[0] if total_result[0] else 0
+        total_count = total_result[1] if total_result[1] else 0
+
+        # Year breakdown
+        yearly_result = con.execute(
+            f"SELECT year, SUM({RKV_AMOUNT_EXPR}) AS total FROM data {w} GROUP BY year ORDER BY year DESC",
+            p
+        ).fetchall()
+        yearly = [(r[0], r[1]) for r in yearly_result]
+
         return render_template("report_leikskoli.html",
             source="reykjavik", page_id="reports", data_loaded=True,
             level=level, year=year, years=years,
-            leikskoli=leikskoli, tegund=tegund, rows=rows)
+            leikskoli=leikskoli, tegund=tegund, rows=rows,
+            total_amount=total_amount, total_count=total_count, yearly=yearly)
 
     # =========================================================================
     # RIKID DRILLDOWNS
