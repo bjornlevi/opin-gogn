@@ -1603,8 +1603,7 @@ def create_app() -> Flask:
 
         base_clauses = [
             "(is_correction = FALSE OR is_correction IS NULL)",
-            "samtala3 = 'Borgarreknir leikskólar'",
-            "tegund3 = 'Viðhald og framkvæmdir'",
+            "samtala0 = 'Viðhald - Leikskólar'",
         ]
         base_params = []
         if year != "all":
@@ -1617,18 +1616,18 @@ def create_app() -> Flask:
             return "WHERE " + " AND ".join(all_clauses), all_params
 
         if not leikskoli:
-            # Level 0: per-preschool totals
+            # Level 0: per-division totals (samtala1 groups)
             w, p = where()
             rows = con.execute(
-                f"SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
-                f"FROM data {w} AND samtala0 IS NOT NULL "
-                f"GROUP BY samtala0 ORDER BY total DESC", p
+                f"SELECT samtala1, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
+                f"FROM data {w} AND samtala1 IS NOT NULL "
+                f"GROUP BY samtala1 ORDER BY total DESC", p
             ).fetchall()
             level = 0
 
         elif not tegund:
-            # Level 1: expense type breakdown for selected preschool
-            w, p = where(["samtala0 = ?"], [leikskoli])
+            # Level 1: expense type breakdown for selected division
+            w, p = where(["samtala1 = ?"], [leikskoli])
             rows = con.execute(
                 f"SELECT tegund0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
                 f"FROM data {w} AND tegund0 IS NOT NULL "
@@ -1638,7 +1637,7 @@ def create_app() -> Flask:
 
         else:
             # Level 2: individual records with full details
-            w, p = where(["samtala0 = ?", "tegund0 = ?"], [leikskoli, tegund])
+            w, p = where(["samtala1 = ?", "tegund0 = ?"], [leikskoli, tegund])
             raw = con.execute(
                 f"SELECT year, vm_nafn, fyrirtaeki, CAST(vm_numer AS VARCHAR) AS vm_numer, "
                 f"raun, samtala0, samtala1, samtala2_canonical, samtala3, "

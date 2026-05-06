@@ -4,8 +4,8 @@
 
 {% block body %}
 <div class="page-header">
-  <h1>Leikskólar — viðhaldskostnaður</h1>
-  <p>{% if level == 0 %}Viðhaldskostnaður alls leikskóla (Borgarrekin){% elif level == 1 %}Útgjöld eftir tegund fyrir {{ leikskoli }}{% else %}Einstakar færslur{% endif %}</p>
+  <h1>Viðhald — Leikskólar</h1>
+  <p>{% if level == 0 %}Viðhaldskostnaður alls deilda og sviða{% elif level == 1 %}Útgjöld eftir tegund fyrir {{ leikskoli }}{% else %}Einstakar færslur{% endif %}</p>
 </div>
 
 <div class="layout">
@@ -26,7 +26,7 @@
   <div>
     {% if level >= 1 %}
     <div class="panel" style="margin-bottom: 16px;">
-      <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Leikskólar</a>
+      <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Allt</a>
       <span style="color: var(--muted);">›</span>
       <span style="font-weight: 600;">{{ leikskoli }}</span>
       {% if level >= 2 %}
@@ -42,7 +42,7 @@
           <thead>
             <tr>
               <th>
-                {% if level == 0 %}Leikskóli
+                {% if level == 0 %}Deild/Svið
                 {% elif level == 1 %}Tegundaflokkur
                 {% else %}Ár
                 {% endif %}
