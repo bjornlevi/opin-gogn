@@ -40,6 +40,18 @@
   <!-- Main -->
   <div>
 
+    <!-- Specialized reports (Reykjavik only) -->
+    {% if source == "reykjavik" %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Sértækar skýrslur</div>
+      <div class="pill-grid">
+        <a href="{{ url_for('rkv_reports_leikskoli') }}?year={{ year }}" class="pill" style="text-decoration:none;">
+          Leikskóli — viðhald
+        </a>
+      </div>
+    </div>
+    {% endif %}
+
     <!-- Yearly totals chart -->
     {% if yearly_labels %}
     <div class="panel" style="margin-bottom:12px">

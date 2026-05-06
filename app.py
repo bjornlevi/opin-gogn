@@ -348,13 +348,15 @@ def create_app() -> Flask:
 
         # Preview rows
         rows = con.execute(
-            f'SELECT year, "Kaupandi", "Birgi", "Tegund", {RIKID_AMOUNT} AS amount, "Dags.greiðslu" '
+            f'SELECT year, "Kaupandi", "Birgi", "Tegund", {RIKID_AMOUNT} AS amount, "Dags.greiðslu", "Númer reiknings" '
             f'FROM data {where} ORDER BY "Dags.greiðslu" DESC LIMIT {limit} OFFSET {offset}',
             params,
         ).fetchall()
         preview_rows = [
             {"year": r[0], "Kaupandi": r[1], "Birgi": r[2], "Tegund": r[3],
-             "amount_raw": r[4], "amount": fmt(r[4]), "Dags": str(r[5])[:10] if r[5] else ""}
+             "amount_raw": r[4], "amount": fmt(r[4]), "Dags": str(r[5])[:10] if r[5] else "",
+             "upphæð_fmt": fmt(r[4]), "Dags.greiðslu": str(r[5])[:10] if r[5] else "", "Númer reiknings": r[6] or "",
+             "_source": "rikid"}
             for r in rows
         ]
 
@@ -474,13 +476,15 @@ def create_app() -> Flask:
             )
 
         rows = con.execute(
-            f'SELECT year, "Kaupandi", "Birgi", "Tegund", {RIKID_AMOUNT} AS amount, "Dags.greiðslu" '
+            f'SELECT year, "Kaupandi", "Birgi", "Tegund", {RIKID_AMOUNT} AS amount, "Dags.greiðslu", "Númer reiknings" '
             f'FROM data {where} ORDER BY "Dags.greiðslu" DESC LIMIT {limit} OFFSET {offset}',
             params,
         ).fetchall()
         preview_rows = [
             {"year": r[0], "Kaupandi": r[1], "Birgi": r[2], "Tegund": r[3],
-             "amount_raw": r[4], "amount": fmt(r[4]), "Dags": str(r[5])[:10] if r[5] else ""}
+             "amount_raw": r[4], "amount": fmt(r[4]), "Dags": str(r[5])[:10] if r[5] else "",
+             "upphæð_fmt": fmt(r[4]), "Dags.greiðslu": str(r[5])[:10] if r[5] else "", "Númer reiknings": r[6] or "",
+             "_source": "rikid"}
             for r in rows
         ]
 
@@ -1000,13 +1004,19 @@ def create_app() -> Flask:
 
         # Preview rows
         rows = con.execute(
-            f"SELECT year, samtala0, samtala1, tegund0, tegund1, raun, {RKV_SUPPLIER_EXPR} AS supplier_name "
+            f"SELECT year, samtala0, samtala1, tegund0, tegund1, raun, {RKV_SUPPLIER_EXPR} AS supplier_name, "
+            f"samtala2_canonical, samtala3, tegund2, tegund3, vm_nafn, fyrirtaeki, CAST(vm_numer AS VARCHAR) AS vm_numer, "
+            f"arsfjordungur, fjarfesting "
             f"FROM data {where} LIMIT {limit} OFFSET {offset}",
             params,
         ).fetchall()
         preview_rows = [
             {"year": r[0], "samtala0": r[1], "samtala1": r[2],
-             "tegund0": r[3], "tegund1": r[4], "raun": fmt(float(r[5]) if r[5] else 0), "supplier_name": r[6]}
+             "tegund0": r[3], "tegund1": r[4], "raun": fmt(float(r[5]) if r[5] else 0), "supplier_name": r[6],
+             "samtala2_canonical": r[7] or "", "samtala3": r[8] or "", "tegund2": r[9] or "", "tegund3": r[10] or "",
+             "raun_fmt": fmt(float(r[5]) if r[5] else 0), "vm_nafn": r[11] or "", "fyrirtaeki": r[12] or "",
+             "vm_numer": r[13] or "", "arsfjordungur": r[14] or "", "fjarfesting": r[15] or "",
+             "_source": "rkv"}
             for r in rows
         ]
 
@@ -1136,13 +1146,19 @@ def create_app() -> Flask:
             )
 
         rows = con.execute(
-            f"SELECT year, samtala0, samtala1, tegund0, tegund1, raun, fyrirtaeki "
+            f"SELECT year, samtala0, samtala1, tegund0, tegund1, raun, fyrirtaeki, "
+            f"samtala2_canonical, samtala3, tegund2, tegund3, vm_nafn, CAST(vm_numer AS VARCHAR) AS vm_numer, "
+            f"{RKV_SUPPLIER_EXPR} AS supplier_name, arsfjordungur, fjarfesting "
             f"FROM data {where} LIMIT {limit} OFFSET {offset}",
             params,
         ).fetchall()
         preview_rows = [
             {"year": r[0], "samtala0": r[1], "samtala1": r[2],
-             "tegund0": r[3], "tegund1": r[4], "raun": r[5], "fyrirtaeki": r[6]}
+             "tegund0": r[3], "tegund1": r[4], "raun": r[5], "fyrirtaeki": r[6] or "",
+             "samtala2_canonical": r[7] or "", "samtala3": r[8] or "", "tegund2": r[9] or "", "tegund3": r[10] or "",
+             "raun_fmt": fmt(float(r[5]) if r[5] else 0), "vm_nafn": r[11] or "", "vm_numer": r[12] or "",
+             "supplier_name": r[13] or "", "arsfjordungur": r[14] or "", "fjarfesting": r[15] or "",
+             "_source": "rkv"}
             for r in rows
         ]
 
@@ -1568,6 +1584,96 @@ def create_app() -> Flask:
             mode_label="Tegundaflokkur" if mode == "tegund" else "Svið",
             dn=rkv_dn,
         )
+
+    @app.route("/reykjavik/reports/leikskoli")
+    def rkv_reports_leikskoli():
+        year = request.args.get("year", "all").rstrip("*")
+        leikskoli = request.args.get("leikskoli", "")   # samtala0 value
+        tegund = request.args.get("tegund", "")         # tegund0 value
+
+        con = open_con(REYKJAVIK_DATA)
+        if con is None:
+            return render_template("report_leikskoli.html", source="reykjavik",
+                                   page_id="reports", data_loaded=False,
+                                   error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
+
+        years = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+
+        base_clauses = [
+            "(is_correction = FALSE OR is_correction IS NULL)",
+            "samtala3 = 'Borgarreknir leikskólar'",
+            "tegund3 = 'Viðhald og framkvæmdir'",
+        ]
+        base_params = []
+        if year != "all":
+            base_clauses.append("year = ?")
+            base_params.append(int(year))
+
+        def where(extra_clauses=(), extra_params=()):
+            all_clauses = base_clauses + list(extra_clauses)
+            all_params = base_params + list(extra_params)
+            return "WHERE " + " AND ".join(all_clauses), all_params
+
+        if not leikskoli:
+            # Level 0: per-preschool totals
+            w, p = where()
+            rows = con.execute(
+                f"SELECT samtala0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
+                f"FROM data {w} AND samtala0 IS NOT NULL "
+                f"GROUP BY samtala0 ORDER BY total DESC", p
+            ).fetchall()
+            level = 0
+
+        elif not tegund:
+            # Level 1: expense type breakdown for selected preschool
+            w, p = where(["samtala0 = ?"], [leikskoli])
+            rows = con.execute(
+                f"SELECT tegund0, SUM({RKV_AMOUNT_EXPR}) AS total, COUNT(*) AS cnt "
+                f"FROM data {w} AND tegund0 IS NOT NULL "
+                f"GROUP BY tegund0 ORDER BY total DESC", p
+            ).fetchall()
+            level = 1
+
+        else:
+            # Level 2: individual records with full details
+            w, p = where(["samtala0 = ?", "tegund0 = ?"], [leikskoli, tegund])
+            raw = con.execute(
+                f"SELECT year, vm_nafn, fyrirtaeki, CAST(vm_numer AS VARCHAR) AS vm_numer, "
+                f"raun, samtala0, samtala1, samtala2_canonical, samtala3, "
+                f"tegund0, tegund1, tegund2, tegund3, "
+                f"arsfjordungur, fjarfesting "
+                f"FROM data {w} ORDER BY raun DESC", p
+            ).fetchall()
+            rows = [
+                {
+                    "year": r[0],
+                    "vm_nafn": r[1] or "",
+                    "fyrirtaeki": r[2] or "",
+                    "vm_numer": r[3] or "",
+                    "raun": r[4],
+                    "raun_fmt": fmt(r[4]),
+                    "samtala0": r[5] or "",
+                    "samtala1": r[6] or "",
+                    "samtala2_canonical": r[7] or "",
+                    "samtala3": r[8] or "",
+                    "tegund0": r[9] or "",
+                    "tegund1": r[10] or "",
+                    "tegund2": r[11] or "",
+                    "tegund3": r[12] or "",
+                    "arsfjordungur": r[13] or "",
+                    "fjarfesting": r[14] or "",
+                    "_source": "rkv"
+                }
+                for r in raw
+            ]
+            level = 2
+
+        return render_template("report_leikskoli.html",
+            source="reykjavik", page_id="reports", data_loaded=True,
+            level=level, year=year, years=years,
+            leikskoli=leikskoli, tegund=tegund, rows=rows)
 
     # =========================================================================
     # RIKID DRILLDOWNS

@@ -425,6 +425,42 @@
     .source-card-links a:hover { background: var(--bg); text-decoration: none; }
     .source-card-links a.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
     .unavailable { opacity: .5; pointer-events: none; }
+
+    /* ------------------------------------------------------------------ */
+    /* Record detail modal                                                 */
+    /* ------------------------------------------------------------------ */
+    dialog.record-modal {
+      border: none;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 0;
+      max-width: 560px;
+      width: 90%;
+      background: var(--panel);
+    }
+    dialog.record-modal::backdrop { background: rgba(0,0,0,.35); }
+    .modal-hd {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 20px; border-bottom: 1px solid var(--border);
+    }
+    .modal-hd h2 { margin: 0; font-size: 1rem; font-weight: 600; }
+    .modal-bd { padding: 20px; }
+    .record-grid {
+      display: grid; grid-template-columns: 150px 1fr;
+      gap: 4px 16px; font-size: 0.875em;
+    }
+    .record-grid .rl { color: var(--muted); font-weight: 500; padding: 4px 0; }
+    .record-grid .rv { padding: 4px 0; word-break: break-word; }
+    .record-grid .rv.amount { font-weight: 600; font-size: 1.1em; color: var(--ink); }
+
+    /* Clickable record rows */
+    .clickable-record {
+      cursor: pointer;
+      transition: background .1s;
+    }
+    .clickable-record:hover {
+      background: var(--accent-light);
+    }
   </style>
 </head>
 <body class="{% if source is defined %}source-{{ source }}{% endif %}">
@@ -503,6 +539,55 @@
     });
   });
 })();
+</script>
+
+<!-- Record detail modals -->
+{% include "_record_rkv.html" %}
+{% include "_record_rikid.html" %}
+
+<!-- Modal JS -->
+<script>
+function openRkvRecord(data) {
+  const modal = document.getElementById('modal-rkv');
+  modal.querySelectorAll('[data-field]').forEach(el => {
+    const v = data[el.dataset.field];
+    el.textContent = (v !== null && v !== undefined && String(v).trim() !== '') ? v : '–';
+  });
+  modal.showModal();
+}
+function openRikidRecord(data) {
+  const modal = document.getElementById('modal-rikid');
+  modal.querySelectorAll('[data-field]').forEach(el => {
+    const v = data[el.dataset.field];
+    el.textContent = (v !== null && v !== undefined && String(v).trim() !== '') ? v : '–';
+  });
+  modal.showModal();
+}
+
+// Event delegation: handle clickable record rows
+document.addEventListener('click', e => {
+  const row = e.target.closest('.clickable-record[data-record]');
+  if (row) {
+    try {
+      const data = JSON.parse(row.dataset.record);
+      console.log('Record clicked, _source:', data._source, 'data:', data);
+      if (data._source === 'rkv') {
+        console.log('Opening RKV modal');
+        openRkvRecord(data);
+      } else {
+        console.log('Opening Rikid modal');
+        openRikidRecord(data);
+      }
+    } catch (err) {
+      console.error('Failed to parse record data:', err);
+    }
+  }
+});
+
+// Close modals on backdrop click
+document.querySelectorAll('dialog.record-modal').forEach(d => {
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });
+});
 </script>
 </body>
 </html>

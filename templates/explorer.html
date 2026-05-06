@@ -222,7 +222,7 @@
           </thead>
           <tbody>
             {% for row in preview_rows %}
-            <tr>
+            <tr class="clickable-record" data-record='{{ row | tojson | safe }}'>
               {% for col in preview_cols %}
                 <td class="{% if col in ('amount', 'raun') %}num {% if (row.get('amount_raw') or 0) < 0 %}neg{% endif %}{% endif %}">
                   {{ row.get(col) or "–" }}

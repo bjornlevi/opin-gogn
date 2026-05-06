@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% set page_id = "reports" %}
+
+{% block body %}
+<div class="page-header">
+  <h1>Leikskólar — viðhaldskostnaður</h1>
+  <p>{% if level == 0 %}Viðhaldskostnaður alls leikskóla (Borgarrekin){% elif level == 1 %}Útgjöld eftir tegund fyrir {{ leikskoli }}{% else %}Einstakar færslur{% endif %}</p>
+</div>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <div class="ctrl-label">Ár</div>
+      <div class="pill-grid">
+        <a href="?{% if level >= 1 %}leikskoli={{ leikskoli }}&{% endif %}{% if level >= 2 %}tegund={{ tegund }}&{% endif %}year=all" class="pill{% if year == 'all' %} active{% endif %}">Öll</a>
+        {% for y in years %}
+          <a href="?{% if level >= 1 %}leikskoli={{ leikskoli }}&{% endif %}{% if level >= 2 %}tegund={{ tegund }}&{% endif %}year={{ y }}" class="pill{% if year == y %} active{% endif %}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div>
+    {% if level >= 1 %}
+    <div class="panel" style="margin-bottom: 16px;">
+      <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Leikskólar</a>
+      <span style="color: var(--muted);">›</span>
+      <span style="font-weight: 600;">{{ leikskoli }}</span>
+      {% if level >= 2 %}
+        <span style="color: var(--muted);">›</span>
+        <span style="font-weight: 600;">{{ tegund }}</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="panel">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>
+                {% if level == 0 %}Leikskóli
+                {% elif level == 1 %}Tegundaflokkur
+                {% else %}Ár
+                {% endif %}
+              </th>
+              {% if level == 0 %}
+              <th class="num">Heildarupphæð</th>
+              <th class="num">Línur</th>
+              {% elif level == 1 %}
+              <th class="num">Heildarupphæð</th>
+              <th class="num">Línur</th>
+              {% else %}
+              <th>Birgi</th>
+              <th class="num">Upphæð</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            {% if level == 0 or level == 1 %}
+            <tr>
+              <td>
+                {% if level == 0 %}
+                  <a href="?leikskoli={{ row[0] }}{% if year != 'all' %}&year={{ year }}{% endif %}">{{ row[0] or '(tómt)' }}</a>
+                {% elif level == 1 %}
+                  <a href="?leikskoli={{ leikskoli }}&tegund={{ row[0] }}{% if year != 'all' %}&year={{ year }}{% endif %}">{{ row[0] or '(tómt)' }}</a>
+                {% endif %}
+              </td>
+              <td class="num">{{ fmt(row[1]) }}</td>
+              <td class="num">{{ row[2] }}</td>
+            </tr>
+            {% else %}
+            {# Level 2: clickable rows that open the record modal #}
+            <tr class="clickable-record" data-record='{{ row | tojson | safe }}' style="cursor:pointer;">
+              <td>{{ row.year }}</td>
+              <td>{{ row.vm_nafn or row.fyrirtaeki or '(óþekkt)' }}</td>
+              <td class="num">{{ row.raun_fmt }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if not rows %}
+      <div class="empty">Engin gögn fyrir þessa síu</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
