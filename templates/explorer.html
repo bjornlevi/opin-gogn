@@ -209,7 +209,7 @@
     <div class="panel">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <div class="section-title" style="margin: 0;">Einstakar færslur (fyrstu {{ limit }})</div>
-        <a href="{% if source == 'rikid' %}/rikid/download{% else %}/reykjavik/download{% endif %}?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&samtala1={{ samtala1 }}&seller={{ seller }}&sign={{ sign }}"
+        <a href="{% if source == 'rikid' %}{{ url_for('rikid_explorer_download') }}{% else %}{{ url_for('rkv_explorer_download') }}{% endif %}?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&samtala1={{ samtala1 }}&seller={{ seller }}&sign={{ sign }}"
            style="padding: 8px 16px; background: var(--accent); color: white; border-radius: 6px; text-decoration: none; font-size: 0.875rem;">
           ⬇ CSV (öll gögn)
         </a>

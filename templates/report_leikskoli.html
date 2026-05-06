@@ -36,7 +36,7 @@
         {% endif %}
       </div>
       {% if level >= 2 %}
-      <a href="/reykjavik/reports/leikskoli/download?year={{ year }}&leikskoli={{ leikskoli }}&tegund={{ tegund }}"
+      <a href="{{ url_for('rkv_reports_leikskoli_download') }}?year={{ year }}&leikskoli={{ leikskoli }}&tegund={{ tegund }}"
          style="padding: 8px 16px; background: var(--accent); color: white; border-radius: 6px; text-decoration: none; font-size: 0.875rem;">
         ⬇ CSV
       </a>
