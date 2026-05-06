@@ -138,7 +138,13 @@
     </div>
 
     <div class="panel">
-      <div class="section-title">Einstakar færslur (fyrstu {{ limit }})</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="section-title" style="margin: 0;">Einstakar færslur (fyrstu {{ limit }})</div>
+        <a href="{% if source == 'rikid' %}/rikid/download{% else %}/reykjavik/download{% endif %}?focus={{ focus }}&focus_value={{ focus_value | urlencode }}"
+           style="padding: 8px 16px; background: var(--accent); color: white; border-radius: 6px; text-decoration: none; font-size: 0.875rem;">
+          ⬇ CSV (öll gögn)
+        </a>
+      </div>
       {% if preview_rows %}
       <div class="table-wrap">
         <table>

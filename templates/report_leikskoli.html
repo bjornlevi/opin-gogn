@@ -25,13 +25,21 @@
   <!-- Main content -->
   <div>
     {% if level >= 1 %}
-    <div class="panel" style="margin-bottom: 16px;">
-      <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Stofnanir</a>
-      <span style="color: var(--muted);">›</span>
-      <span style="font-weight: 600;">{{ leikskoli }}</span>
-      {% if level >= 2 %}
+    <div class="panel" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Stofnanir</a>
         <span style="color: var(--muted);">›</span>
-        <span style="font-weight: 600;">{{ tegund }}</span>
+        <span style="font-weight: 600;">{{ leikskoli }}</span>
+        {% if level >= 2 %}
+          <span style="color: var(--muted);">›</span>
+          <span style="font-weight: 600;">{{ tegund }}</span>
+        {% endif %}
+      </div>
+      {% if level >= 2 %}
+      <a href="/reykjavik/reports/leikskoli/download?year={{ year }}&leikskoli={{ leikskoli }}&tegund={{ tegund }}"
+         style="padding: 8px 16px; background: var(--accent); color: white; border-radius: 6px; text-decoration: none; font-size: 0.875rem;">
+        ⬇ CSV
+      </a>
       {% endif %}
     </div>
     {% endif %}

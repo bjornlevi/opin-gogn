@@ -2,6 +2,8 @@
 """Combined Open Accounts explorer — Rikið and Reykjavík."""
 from __future__ import annotations
 
+import csv
+import io
 import math
 import os
 from pathlib import Path
@@ -393,6 +395,55 @@ def create_app() -> Flask:
             page=page, limit=limit, total_pages=total_pages,
             active_filters=active_filters,
             dn=rikid_dn,
+        )
+
+    @app.route("/rikid/download")
+    def rikid_explorer_download():
+        """Download rikid explorer records as CSV."""
+        year = request.args.get("year", "all").rstrip("*")
+        tegund = request.args.get("tegund", "all")
+        buyer = request.args.get("buyer", "all")
+        seller = request.args.get("seller", "all")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
+
+        con = open_rikid_con(RIKID_DATA)
+        if con is None:
+            return "Data not found", 404
+
+        where, params = build_where([
+            ("year", year if year != "all" else None),
+            ("Tegund", tegund if tegund != "all" else None),
+            ("Kaupandi", buyer if buyer != "all" else None),
+            ("Birgi", seller if seller != "all" else None),
+        ])
+
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+
+        # Get all records (limit to 100k for safety)
+        rows = con.execute(
+            f"SELECT * FROM data {where} ORDER BY \"Dags.greiðslu\" DESC LIMIT 100000",
+            params,
+        ).fetchall()
+
+        if not rows:
+            return "No records found", 404
+
+        # Get column names
+        columns = [desc[0] for desc in con.description]
+
+        # Create CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(row)
+
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=rikid_records.csv"}
         )
 
     @app.route("/rikid/analysis")
@@ -1063,6 +1114,61 @@ def create_app() -> Flask:
             dn=rkv_dn,
         )
 
+    @app.route("/reykjavik/download")
+    def rkv_explorer_download():
+        """Download reykjavik explorer records as CSV."""
+        year = request.args.get("year", "all").rstrip("*")
+        tegund0 = request.args.get("tegund", request.args.get("tegund0", "all"))
+        samtala0 = request.args.get("buyer", request.args.get("samtala0", "all"))
+        samtala1 = request.args.get("samtala1", "all")
+        seller = request.args.get("seller", "all")
+        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
+
+        con = open_con(REYKJAVIK_DATA)
+        if con is None:
+            return "Data not found", 404
+
+        where, params = build_where([
+            ("year", year if year != "all" else None),
+            ("tegund0", tegund0 if tegund0 != "all" else None),
+            ("samtala0", samtala0 if samtala0 != "all" else None),
+            ("samtala1", samtala1 if samtala1 != "all" else None),
+        ])
+
+        if seller != "all":
+            seller_clause = f"{RKV_SUPPLIER_EXPR} = ?"
+            where += f" AND {seller_clause}" if where else f"WHERE {seller_clause}"
+            params.append(seller)
+
+        if not show_corrections:
+            where += " AND (is_correction = FALSE OR is_correction IS NULL)" if where else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+
+        # Get all records (limit to 100k for safety)
+        rows = con.execute(
+            f"SELECT * FROM data {where} LIMIT 100000",
+            params,
+        ).fetchall()
+
+        if not rows:
+            return "No records found", 404
+
+        # Get column names
+        columns = [desc[0] for desc in con.description]
+
+        # Create CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(row)
+
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=reykjavik_records.csv"}
+        )
+
     @app.route("/reykjavik/analysis")
     def rkv_analysis():
         focus = request.args.get("focus", request.args.get("group_by", "tegund"))
@@ -1691,6 +1797,63 @@ def create_app() -> Flask:
             level=level, year=year, years=years,
             leikskoli=leikskoli, tegund=tegund, rows=rows,
             total_amount=total_amount, total_count=total_count, yearly=yearly)
+
+    @app.route("/reykjavik/reports/leikskoli/download")
+    def rkv_reports_leikskoli_download():
+        """Download leikskoli records as CSV."""
+        year = request.args.get("year", "all").rstrip("*")
+        leikskoli = request.args.get("leikskoli", "")
+        tegund = request.args.get("tegund", "")
+
+        con = open_con(REYKJAVIK_DATA)
+        if con is None:
+            return "Data not found", 404
+
+        base_clauses = [
+            "(is_correction = FALSE OR is_correction IS NULL)",
+            "samtala2_canonical = 'Leikskólar og dagforeldrar'",
+            "tegund3 = 'Viðhald og framkvæmdir'",
+        ]
+        base_params = []
+        if year != "all":
+            base_clauses.append("year = ?")
+            base_params.append(int(year))
+
+        def where(extra_clauses=(), extra_params=()):
+            all_clauses = base_clauses + list(extra_clauses)
+            all_params = base_params + list(extra_params)
+            return "WHERE " + " AND ".join(all_clauses), all_params
+
+        # Get all columns for the selected records
+        if not leikskoli or not tegund:
+            return "Must select both institution and category", 400
+
+        w, p = where(["samtala0 = ?", "tegund0 = ?"], [leikskoli, tegund])
+        rows = con.execute(
+            f"SELECT * FROM data {w} ORDER BY raun DESC LIMIT 10000",
+            p
+        ).fetchall()
+
+        if not rows:
+            return "No records found", 404
+
+        # Get column names
+        columns = [desc[0] for desc in con.description]
+
+        # Create CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(row)
+
+        # Return as file
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=leikskoli_records.csv"}
+        )
 
     # =========================================================================
     # RIKID DRILLDOWNS
