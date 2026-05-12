@@ -1758,6 +1758,7 @@ def create_app() -> Flask:
         year = request.args.get("year", "all").rstrip("*")
         category = request.args.get("category", "")
         department = request.args.get("department", "")
+        institution = request.args.get("institution", "")
 
         con = open_con(REYKJAVIK_DATA)
         if con is None:
@@ -1772,6 +1773,7 @@ def create_app() -> Flask:
 
         all_wage_years = sorted(years)
         year_filter = f"AND year = {year}" if year != "all" else ""
+        chart_data = []
 
         if not category:
             # Level 0: Categories with totals
@@ -1813,29 +1815,68 @@ def create_app() -> Flask:
                         "total": sum(yearly_values),
                     })
             rows.sort(key=lambda x: x["total"], reverse=True)
+            chart_data = rows
 
         elif not department:
-            # Level 1: Institutions in selected category
+            # Level 1: Departments in selected category
             level = 1
-            inst_rows = con.execute(
-                f"SELECT samtala0, samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
+            dept_rows = con.execute(
+                f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
                 f"FROM data "
                 f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
-                f"AND (is_correction = FALSE OR is_correction IS NULL) {year_filter} "
-                f"GROUP BY samtala0, samtala1, year ORDER BY samtala0, year"
+                f"AND (is_correction = FALSE OR is_correction IS NULL) "
+                f"GROUP BY samtala1, year ORDER BY samtala1, year"
             ).fetchall()
 
-            inst_yearly = {}
-            for inst, dept, wy, total in inst_rows:
-                if inst is None or dept is None:
+            dept_yearly = {}
+            for dept, wy, total in dept_rows:
+                if dept is None:
                     continue
                 cat = get_wage_category(dept)
                 if cat == category:
-                    if inst not in inst_yearly:
-                        inst_yearly[inst] = {}
-                    if wy not in inst_yearly[inst]:
-                        inst_yearly[inst][wy] = 0
-                    inst_yearly[inst][wy] += total
+                    if dept not in dept_yearly:
+                        dept_yearly[dept] = {}
+                    if wy not in dept_yearly[dept]:
+                        dept_yearly[dept][wy] = 0
+                    dept_yearly[dept][wy] += total
+
+            rows = []
+            for dept, yearly_dict in sorted(dept_yearly.items()):
+                yearly_values = [
+                    float(yearly_dict.get(yr, 0)) for yr in all_wage_years
+                ]
+                if sum(yearly_values) > 0:
+                    rows.append({
+                        "name": dept or "Óskilgreint",
+                        "key": dept,
+                        "years": all_wage_years,
+                        "yearly": yearly_values,
+                        "total": sum(yearly_values),
+                    })
+            rows.sort(key=lambda x: x["total"], reverse=True)
+            chart_data = rows
+
+        elif not institution:
+            # Level 2: Institutions in selected department
+            level = 2
+            inst_rows = con.execute(
+                f"SELECT samtala0, year, SUM({RKV_AMOUNT_EXPR}) AS total "
+                f"FROM data "
+                f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' AND samtala1 = ? "
+                f"AND (is_correction = FALSE OR is_correction IS NULL) "
+                f"GROUP BY samtala0, year ORDER BY samtala0, year",
+                [department]
+            ).fetchall()
+
+            inst_yearly = {}
+            for inst, wy, total in inst_rows:
+                if inst is None:
+                    continue
+                if inst not in inst_yearly:
+                    inst_yearly[inst] = {}
+                if wy not in inst_yearly[inst]:
+                    inst_yearly[inst][wy] = 0
+                inst_yearly[inst][wy] += total
 
             rows = []
             for inst, yearly_dict in sorted(inst_yearly.items()):
@@ -1851,10 +1892,11 @@ def create_app() -> Flask:
                         "total": sum(yearly_values),
                     })
             rows.sort(key=lambda x: x["total"], reverse=True)
+            chart_data = rows
 
         else:
-            # Level 2: Individual records for institution
-            level = 2
+            # Level 3: Individual records for institution
+            level = 3
             records = con.execute(
                 f"SELECT year, vm_nafn, fyrirtaeki, CAST(vm_numer AS VARCHAR), "
                 f"raun, samtala0, samtala1, tegund0, tegund1, tegund2, tegund3 "
@@ -1862,7 +1904,7 @@ def create_app() -> Flask:
                 f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' AND samtala0 = ? "
                 f"AND (is_correction = FALSE OR is_correction IS NULL) {year_filter} "
                 f"ORDER BY raun DESC LIMIT 1000",
-                [department]
+                [institution]
             ).fetchall()
 
             rows = [
@@ -1893,8 +1935,10 @@ def create_app() -> Flask:
             years=years,
             category=category,
             department=department,
+            institution=institution,
             wage_years=all_wage_years,
             rows=rows,
+            chart_data=chart_data,
             category_name=RKV_WAGE_CATEGORIES.get(category, {}).get("label", "") if category else "",
         )
 

@@ -7,7 +7,8 @@
   <h1>Laun eftir þjónustuflokki</h1>
   <p>
     {% if level == 0 %}Heildar launakostnaður borgarinnar skipt eftir þjónustuflokki
-    {% elif level == 1 %}Stofnanir í {{ category_name }}
+    {% elif level == 1 %}Deildir í {{ category_name }}
+    {% elif level == 2 %}Stofnanir í {{ department }}
     {% else %}Einstakar færslur
     {% endif %}
   </p>
@@ -41,15 +42,24 @@
         <span style="font-weight: 600;">{{ category_name }}</span>
         {% if level >= 2 %}
           <span style="color: var(--muted);">›</span>
-          <span style="font-weight: 600;">{{ department }}</span>
+          <a href="?category={{ category }}{% if year != 'all' %}&year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">{{ department }}</a>
+        {% endif %}
+        {% if level >= 3 %}
+          <span style="color: var(--muted);">›</span>
+          <span style="font-weight: 600;">{{ institution }}</span>
         {% endif %}
       </div>
     </div>
     {% endif %}
 
-    {% if level == 0 and rows %}
+    {% if level < 3 and chart_data %}
     <div class="panel" style="margin-bottom:12px">
-      <div class="section-title">Þróun launakostnaðar eftir flokki</div>
+      <div class="section-title">
+        {% if level == 0 %}Þróun launakostnaðar eftir flokki
+        {% elif level == 1 %}Þróun launakostnaðar eftir deild
+        {% elif level == 2 %}Þróun launakostnaðar eftir stofnun
+        {% endif %}
+      </div>
       <div class="chart-wrap" style="height:300px">
         <canvas id="wage-chart"></canvas>
       </div>
@@ -58,14 +68,18 @@
 
     <div class="panel">
       <div class="section-title">
-        {% if level == 0 %}Þjónustuflokkir{% elif level == 1 %}Stofnanir{% else %}Færslur{% endif %}
+        {% if level == 0 %}Þjónustuflokkir
+        {% elif level == 1 %}Deildir
+        {% elif level == 2 %}Stofnanir
+        {% else %}Færslur
+        {% endif %}
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>{% if level == 0 %}Flokkur{% elif level == 1 %}Stofnun{% else %}Ár{% endif %}</th>
-              {% if level < 2 %}
+              <th>{% if level == 0 %}Flokkur{% elif level == 1 %}Deild{% elif level == 2 %}Stofnun{% else %}Ár{% endif %}</th>
+              {% if level < 3 %}
                 {% for wy in wage_years %}
                 <th class="num">{{ wy }}</th>
                 {% endfor %}
@@ -77,17 +91,25 @@
           </thead>
           <tbody>
             {% for row in rows %}
-            <tr style="cursor: pointer;" onclick="navigate('{{ row.key if level == 0 else row.key }}')">
+            <tr>
               <td>
-                {% if level == 0 or level == 1 %}
-                  <a href="?category={{ row.key }}{% if level == 1 %}&department={{ row.key }}{% endif %}{% if year != 'all' %}&year={{ year }}{% endif %}" style="color: inherit; text-decoration: none;">
+                {% if level == 0 %}
+                  <a href="?category={{ row.key }}{% if year != 'all' %}&year={{ year }}{% endif %}" style="color: inherit; text-decoration: none;">
+                    {{ row.name }}
+                  </a>
+                {% elif level == 1 %}
+                  <a href="?category={{ category }}&department={{ row.key }}{% if year != 'all' %}&year={{ year }}{% endif %}" style="color: inherit; text-decoration: none;">
+                    {{ row.name }}
+                  </a>
+                {% elif level == 2 %}
+                  <a href="?category={{ category }}&department={{ department }}&institution={{ row.key }}{% if year != 'all' %}&year={{ year }}{% endif %}" style="color: inherit; text-decoration: none;">
                     {{ row.name }}
                   </a>
                 {% else %}
                   {{ row.year }} - {{ row.vm_nafn or row.fyrirtaeki }}
                 {% endif %}
               </td>
-              {% if level < 2 %}
+              {% if level < 3 %}
                 {% for value in row.yearly %}
                 <td class="num">{{ fmt(value) }}</td>
                 {% endfor %}
@@ -107,9 +129,9 @@
 {% endif %}
 
 <script>
-{% if data_loaded and level == 0 and rows %}
-// Chart for category overview
-const chartData = {{ rows | tojson }};
+{% if data_loaded and level < 3 and chart_data %}
+// Chart for wage breakdown at current level
+const chartData = {{ chart_data | tojson }};
 const wageYears = {{ wage_years | tojson }};
 
 const colors = [
