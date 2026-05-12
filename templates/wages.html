@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% set page_id = "wages" %}
+{% block title %}Laun eftir flokki – Reykjavík{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-reykjavik">Reykjavík</div>
+  <h1>Laun eftir þjónustuflokki</h1>
+  <p>Heildar launakostnaður borgarinnar skipt eftir þjónustuflokki og ári</p>
+</div>
+
+{% if not data_loaded %}
+<div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <div class="section-title">Stillingir</div>
+      <div class="ctrl-group">
+        <label style="display:flex; gap:8px; margin-bottom:12px">
+          <input type="checkbox" id="show_corrections" {{ 'checked' if show_corrections else '' }} disabled>
+          <span>Sýna leiðréttingar</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-title">Flokkar</div>
+      {% for cat in category_data %}
+      <div style="padding:8px 0; border-bottom:1px solid var(--border); font-size:13px">
+        <span style="display:inline-block; width:12px; height:12px; background:{{ cat.color }}; border-radius:2px; vertical-align:middle; margin-right:8px"></span>
+        <strong>{{ cat.label }}</strong>
+        <br><span style="color:var(--muted); font-size:12px">{{ cat.total }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div>
+    <!-- Trend Chart -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Þróun launakostnaðar eftir flokki</div>
+      <div class="chart-wrap" style="height:300px">
+        <canvas id="trendChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Stacked Bar Chart -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Uppsöfnuð laun eftir flokki á hverju ári</div>
+      <div class="chart-wrap" style="height:300px">
+        <canvas id="stackedChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Detailed Table -->
+    <div class="panel">
+      <div class="section-title">Sundurliðun eftir ári</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Þjónustuflokk</th>
+              {% for year in years %}
+              <th style="text-align:right">{{ year }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for cat in category_data %}
+            <tr>
+              <td><strong>{{ cat.label }}</strong></td>
+              {% for value in cat.yearly %}
+              <td style="text-align:right; font-family:monospace">{{ fmt(value) }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const categoryData = {{ category_data|tojson|safe }};
+    const years = {{ years|tojson|safe }};
+
+    if (categoryData.length === 0) {
+        console.log('No data to display');
+        return;
+    }
+
+    // Trend Chart - Line chart showing each category's trend
+    {
+        const ctx = document.getElementById('trendChart');
+        if (ctx) {
+            const datasets = categoryData.map(cat => ({
+                label: cat.label,
+                data: cat.yearly,
+                borderColor: cat.color,
+                backgroundColor: cat.color + '20',
+                borderWidth: 2,
+                fill: false,
+                tension: 0.3,
+                pointRadius: 4,
+                pointBackgroundColor: cat.color,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+            }));
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: years.map(y => String(y)),
+                    datasets: datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        },
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return (value / 1e6).toFixed(0) + 'M kr';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Stacked Bar Chart
+    {
+        const ctx = document.getElementById('stackedChart');
+        if (ctx) {
+            const datasets = categoryData.map(cat => ({
+                label: cat.label,
+                data: cat.yearly,
+                backgroundColor: cat.color,
+                borderColor: cat.color,
+                borderWidth: 1,
+            }));
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: years.map(y => String(y)),
+                    datasets: datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                        },
+                    },
+                    scales: {
+                        x: {
+                            stacked: true,
+                        },
+                        y: {
+                            stacked: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return (value / 1e6).toFixed(0) + 'M kr';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+});
+</script>
+{% endblock %}
