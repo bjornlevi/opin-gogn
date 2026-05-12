@@ -1814,7 +1814,7 @@ def create_app() -> Flask:
         # Calculate total wages
         total_result = con.execute(
             f"SELECT SUM({RKV_AMOUNT_EXPR}) FROM data "
-            f"WHERE tegund0 = 'Laun' AND fyriktaeki = 'Reykjavíkurborg' "
+            f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
             f"AND (is_correction = FALSE OR is_correction IS NULL) {wage_filter}"
         ).fetchone()
         total_wages = total_result[0] if total_result[0] else 0
