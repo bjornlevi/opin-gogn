@@ -47,6 +47,15 @@
     </div>
     {% endif %}
 
+    {% if level == 0 and rows %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Þróun launakostnaðar eftir flokki</div>
+      <div class="chart-wrap" style="height:300px">
+        <canvas id="wage-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
     <div class="panel">
       <div class="section-title">
         {% if level == 0 %}Þjónustuflokkir{% elif level == 1 %}Stofnanir{% else %}Færslur{% endif %}
@@ -98,8 +107,54 @@
 {% endif %}
 
 <script>
-function navigate(key) {
-  // Handled by link onclick
-}
+{% if data_loaded and level == 0 and rows %}
+// Chart for category overview
+const chartData = {{ rows | tojson }};
+const wageYears = {{ wage_years | tojson }};
+
+const colors = [
+  '#4f46e5', '#ec4899', '#f59e0b', '#06b6d4', '#10b981', '#8b5cf6'
+];
+
+const datasets = chartData.map((row, idx) => ({
+  label: row.name,
+  data: row.yearly,
+  borderColor: colors[idx % colors.length],
+  backgroundColor: colors[idx % colors.length] + '20',
+  borderWidth: 2,
+  fill: false,
+  tension: 0.3,
+  pointRadius: 4,
+  pointBackgroundColor: colors[idx % colors.length],
+  pointBorderColor: '#fff',
+  pointBorderWidth: 2,
+}));
+
+new Chart(document.getElementById("wage-chart"), {
+  type: "line",
+  data: {
+    labels: wageYears.map(y => String(y)),
+    datasets: datasets,
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: {
+      legend: { position: "bottom" },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString("is-IS") + " kr."
+        }
+      }
+    },
+    scales: {
+      y: {
+        ticks: { callback: v => (v/1e9).toFixed(1) + "B" }
+      }
+    }
+  }
+});
+{% endif %}
 </script>
 {% endblock %}
