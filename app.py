@@ -1815,37 +1815,37 @@ def create_app() -> Flask:
             rows.sort(key=lambda x: x["total"], reverse=True)
 
         elif not department:
-            # Level 1: Departments in selected category
+            # Level 1: Institutions in selected category
             level = 1
-            dept_rows = con.execute(
-                f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
+            inst_rows = con.execute(
+                f"SELECT samtala0, samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
                 f"FROM data "
                 f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
                 f"AND (is_correction = FALSE OR is_correction IS NULL) {year_filter} "
-                f"GROUP BY samtala1, year ORDER BY samtala1, year"
+                f"GROUP BY samtala0, samtala1, year ORDER BY samtala0, year"
             ).fetchall()
 
-            dept_yearly = {}
-            for dept, wy, total in dept_rows:
-                if dept is None:
+            inst_yearly = {}
+            for inst, dept, wy, total in inst_rows:
+                if inst is None or dept is None:
                     continue
                 cat = get_wage_category(dept)
                 if cat == category:
-                    if dept not in dept_yearly:
-                        dept_yearly[dept] = {}
-                    if wy not in dept_yearly[dept]:
-                        dept_yearly[dept][wy] = 0
-                    dept_yearly[dept][wy] += total
+                    if inst not in inst_yearly:
+                        inst_yearly[inst] = {}
+                    if wy not in inst_yearly[inst]:
+                        inst_yearly[inst][wy] = 0
+                    inst_yearly[inst][wy] += total
 
             rows = []
-            for dept, yearly_dict in sorted(dept_yearly.items()):
+            for inst, yearly_dict in sorted(inst_yearly.items()):
                 yearly_values = [
                     float(yearly_dict.get(yr, 0)) for yr in all_wage_years
                 ]
                 if sum(yearly_values) > 0:
                     rows.append({
-                        "name": dept or "Óskilgreint",
-                        "key": dept,
+                        "name": inst or "Óskilgreint",
+                        "key": inst,
                         "years": all_wage_years,
                         "yearly": yearly_values,
                         "total": sum(yearly_values),
@@ -1853,13 +1853,13 @@ def create_app() -> Flask:
             rows.sort(key=lambda x: x["total"], reverse=True)
 
         else:
-            # Level 2: Individual records for department
+            # Level 2: Individual records for institution
             level = 2
             records = con.execute(
                 f"SELECT year, vm_nafn, fyrirtaeki, CAST(vm_numer AS VARCHAR), "
                 f"raun, samtala0, samtala1, tegund0, tegund1, tegund2, tegund3 "
                 f"FROM data "
-                f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' AND samtala1 = ? "
+                f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' AND samtala0 = ? "
                 f"AND (is_correction = FALSE OR is_correction IS NULL) {year_filter} "
                 f"ORDER BY raun DESC LIMIT 1000",
                 [department]
