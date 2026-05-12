@@ -1739,6 +1739,46 @@ def create_app() -> Flask:
             for r in top_rows
         ]
 
+        # Wage report by category (for Reykjavík only)
+        wage_data = []
+        wage_correction_filter = "" if show_corrections else "AND (is_correction = FALSE OR is_correction IS NULL)"
+        wage_rows = con.execute(
+            f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
+            f"FROM data "
+            f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' {wage_correction_filter} "
+            f"GROUP BY samtala1, year ORDER BY samtala1, year"
+        ).fetchall()
+
+        category_yearly = {}
+        for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
+            category_yearly[cat_key] = {}
+
+        for dept, wy, total in wage_rows:
+            if dept is None:
+                continue
+            cat = get_wage_category(dept)
+            if cat:
+                if wy not in category_yearly[cat]:
+                    category_yearly[cat][wy] = 0
+                category_yearly[cat][wy] += total
+
+        all_wage_years = sorted(set(r[1] for r in wage_rows if r[1] is not None))
+        for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
+            if not category_yearly[cat_key]:
+                continue
+            yearly_values = [
+                float(category_yearly[cat_key].get(yr, 0)) for yr in all_wage_years
+            ]
+            if sum(yearly_values) > 0:
+                wage_data.append({
+                    "label": cat_info["label"],
+                    "color": cat_info["color"],
+                    "years": all_wage_years,
+                    "yearly": yearly_values,
+                    "total": fmt(sum(yearly_values)),
+                })
+        wage_data.sort(key=lambda x: float(x["total"].replace(".", "")), reverse=True)
+
         return render_template(
             "reports.html",
             source="reykjavik",
@@ -1750,6 +1790,8 @@ def create_app() -> Flask:
             yoy_rows=yoy_rows,
             yoy_years=years_desc[:2] if len(years_desc) >= 2 else [],
             mode_label="Tegundaflokkur" if mode == "tegund" else "Svið",
+            wage_data=wage_data,
+            wage_years=all_wage_years,
             dn=rkv_dn,
         )
 
@@ -2106,88 +2148,6 @@ def create_app() -> Flask:
                                    years=years, rows=rows, drill_label=drill_label,
                                    explorer_base=url_for('rkv_explorer'), explorer_type_param="seller", explorer_buyer_param="buyer")
 
-    @app.route("/reykjavik/wages")
-    def rkv_wages():
-        """Wage report by category per year for Reykjavík."""
-        show_corrections = request.args.get("show_corrections", "false").lower() == "true"
-
-        con = open_con(REYKJAVIK_DATA)
-        if con is None:
-            return render_template("wages.html", source="reykjavik", data_loaded=False,
-                                   error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
-
-        # Build WHERE clause for corrections
-        correction_filter = "" if show_corrections else "AND (is_correction = FALSE OR is_correction IS NULL)"
-
-        # Get all unique departments (samtala1) and their wage totals by year
-        rows = con.execute(
-            f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
-            f"FROM data "
-            f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' {correction_filter} "
-            f"GROUP BY samtala1, year ORDER BY samtala1, year"
-        ).fetchall()
-
-        # Group by category
-        category_yearly = {}
-        for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
-            category_yearly[cat_key] = {}
-
-        for dept, year, total in rows:
-            if dept is None:
-                continue
-            cat = get_wage_category(dept)
-            if cat:
-                if year not in category_yearly[cat]:
-                    category_yearly[cat][year] = 0
-                category_yearly[cat][year] += total
-
-        # Build year range and chart data
-        all_years = sorted(set(r[1] for r in rows if r[1] is not None))
-        years_raw = all_years
-
-        # Build data for each category
-        category_data = []
-        for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
-            if not category_yearly[cat_key]:
-                continue
-            yearly_values = [
-                float(category_yearly[cat_key].get(yr, 0)) for yr in all_years
-            ]
-            if sum(yearly_values) > 0:  # Only include categories with data
-                category_data.append({
-                    "key": cat_key,
-                    "label": cat_info["label"],
-                    "color": cat_info["color"],
-                    "years": all_years,
-                    "yearly": yearly_values,
-                    "total": fmt(sum(yearly_values)),
-                    "total_raw": sum(yearly_values),
-                })
-
-        # Sort by total descending
-        category_data.sort(key=lambda x: x["total_raw"], reverse=True)
-
-        # Summary table: each category's yearly breakdown
-        summary_rows = []
-        for category in category_data:
-            for i, year in enumerate(category["years"]):
-                summary_rows.append({
-                    "category": category["label"],
-                    "year": year,
-                    "amount_raw": category["yearly"][i],
-                    "amount": fmt(category["yearly"][i]),
-                })
-
-        return render_template(
-            "wages.html",
-            source="reykjavik",
-            data_loaded=True,
-            years=years_raw,
-            yearly_labels=[str(y) for y in years_raw],
-            category_data=category_data,
-            summary_rows=summary_rows,
-            show_corrections=show_corrections,
-        )
     return app
 
 

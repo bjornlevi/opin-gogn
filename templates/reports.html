@@ -50,6 +50,42 @@
         </a>
       </div>
     </div>
+
+    <!-- Wage report by category -->
+    {% if wage_data %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Laun eftir þjónustuflokki</div>
+      <div class="chart-wrap" style="height:300px">
+        <canvas id="wage-trend-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Launakostnaður - sundurliðun eftir ári</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Þjónustuflokk</th>
+              {% for year in wage_years %}
+              <th class="num">{{ year }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for cat in wage_data %}
+            <tr>
+              <td><strong>{{ cat.label }}</strong></td>
+              {% for value in cat.yearly %}
+              <td class="num">{{ fmt(value) }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
     {% endif %}
 
     <!-- Yearly totals chart -->
@@ -186,6 +222,52 @@ new Chart(document.getElementById("yearly-chart"), {
       x: { grid: { display: false } },
       y: {
         grid: { color: "#f0f0f0" },
+        ticks: { callback: v => (v/1e9).toFixed(1) + "B" }
+      }
+    }
+  }
+});
+{% endif %}
+
+{% if data_loaded and wage_data %}
+// Wage report by category
+const wageData = {{ wage_data | tojson }};
+const wageYears = {{ wage_years | tojson }};
+
+const wageDatasets = wageData.map(cat => ({
+  label: cat.label,
+  data: cat.yearly,
+  borderColor: cat.color,
+  backgroundColor: cat.color + '20',
+  borderWidth: 2,
+  fill: false,
+  tension: 0.3,
+  pointRadius: 4,
+  pointBackgroundColor: cat.color,
+  pointBorderColor: '#fff',
+  pointBorderWidth: 2,
+}));
+
+new Chart(document.getElementById("wage-trend-chart"), {
+  type: "line",
+  data: {
+    labels: wageYears.map(y => String(y)),
+    datasets: wageDatasets,
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: {
+      legend: { position: "bottom" },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString("is-IS") + " kr."
+        }
+      }
+    },
+    scales: {
+      y: {
         ticks: { callback: v => (v/1e9).toFixed(1) + "B" }
       }
     }
