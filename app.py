@@ -1753,7 +1753,6 @@ def create_app() -> Flask:
             dn=rkv_dn,
         )
 
-<<<<<<< Updated upstream
     @app.route("/reykjavik/reports/leikskoli")
     def rkv_reports_leikskoli():
         year = request.args.get("year", "all").rstrip("*")
