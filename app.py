@@ -1925,6 +1925,13 @@ def create_app() -> Flask:
                 for r in records
             ]
 
+        # Calculate totals for each year
+        year_totals = []
+        if level < 3 and rows:
+            for year_idx in range(len(all_wage_years)):
+                total = sum(row["yearly"][year_idx] if year_idx < len(row["yearly"]) else 0 for row in rows)
+                year_totals.append(total)
+
         return render_template(
             "report_wages.html",
             source="reykjavik",
@@ -1938,6 +1945,7 @@ def create_app() -> Flask:
             institution=institution,
             wage_years=all_wage_years,
             rows=rows,
+            year_totals=year_totals,
             chart_data=chart_data,
             category_name=RKV_WAGE_CATEGORIES.get(category, {}).get("label", "") if category else "",
         )

@@ -120,20 +120,12 @@
             </tr>
             {% endfor %}
           </tbody>
-          {% if level < 3 and rows %}
+          {% if level < 3 and year_totals %}
           <tfoot>
             <tr style="font-weight: 600; border-top: 2px solid var(--border);">
               <td>Samtals</td>
-              {% for year_idx in range(wage_years|length) %}
-              <td class="num">
-                {% set total = 0 %}
-                {% for row in rows %}
-                  {% if row.yearly|length > year_idx %}
-                    {% set total = total + row.yearly[year_idx] %}
-                  {% endif %}
-                {% endfor %}
-                {{ fmt(total) }}
-              </td>
+              {% for total in year_totals %}
+              <td class="num">{{ fmt(total) }}</td>
               {% endfor %}
             </tr>
           </tfoot>
