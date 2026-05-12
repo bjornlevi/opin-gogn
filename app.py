@@ -1739,18 +1739,48 @@ def create_app() -> Flask:
             for r in top_rows
         ]
 
-        # Wage report by category (for Reykjavík only)
-        wage_data = []
-        wage_correction_filter = "" if show_corrections else "AND (is_correction = FALSE OR is_correction IS NULL)"
+        return render_template(
+            "reports.html",
+            source="reykjavik",
+            data_loaded=True,
+            year=year, mode=mode, years=years,
+            yearly_labels=[str(r[0]) for r in yearly],
+            yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
+            report_rows=report_rows,
+            yoy_rows=yoy_rows,
+            yoy_years=years_desc[:2] if len(years_desc) >= 2 else [],
+            mode_label="Tegundaflokkur" if mode == "tegund" else "Svið",
+            dn=rkv_dn,
+        )
+
+    @app.route("/reykjavik/reports/wages")
+    def rkv_reports_wages():
+        year = request.args.get("year", "all").rstrip("*")
+
+        con = open_con(REYKJAVIK_DATA)
+        if con is None:
+            return render_template("report_wages.html", source="reykjavik",
+                                   page_id="reports", data_loaded=False,
+                                   error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
+
+        years = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL AND tegund0 = 'Laun' "
+            "AND fyrirtaeki = 'Reykjavíkurborg' ORDER BY year DESC"
+        ).fetchall()]
+
+        wage_filter = f"AND year = {year}" if year != "all" else ""
+
+        # Get wage data by category
         wage_rows = con.execute(
             f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
             f"FROM data "
-            f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' {wage_correction_filter} "
+            f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
+            f"AND (is_correction = FALSE OR is_correction IS NULL) {wage_filter} "
             f"GROUP BY samtala1, year ORDER BY samtala1, year"
         ).fetchall()
 
         category_yearly = {}
-        for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
+        for cat_key in RKV_WAGE_CATEGORIES:
             category_yearly[cat_key] = {}
 
         for dept, wy, total in wage_rows:
@@ -1763,6 +1793,8 @@ def create_app() -> Flask:
                 category_yearly[cat][wy] += total
 
         all_wage_years = sorted(set(r[1] for r in wage_rows if r[1] is not None))
+
+        wage_data = []
         for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
             if not category_yearly[cat_key]:
                 continue
@@ -1779,20 +1811,24 @@ def create_app() -> Flask:
                 })
         wage_data.sort(key=lambda x: float(x["total"].replace(".", "")), reverse=True)
 
+        # Calculate total wages
+        total_result = con.execute(
+            f"SELECT SUM({RKV_AMOUNT_EXPR}) FROM data "
+            f"WHERE tegund0 = 'Laun' AND fyriktaeki = 'Reykjavíkurborg' "
+            f"AND (is_correction = FALSE OR is_correction IS NULL) {wage_filter}"
+        ).fetchone()
+        total_wages = total_result[0] if total_result[0] else 0
+
         return render_template(
-            "reports.html",
+            "report_wages.html",
             source="reykjavik",
+            page_id="reports",
             data_loaded=True,
-            year=year, mode=mode, years=years,
-            yearly_labels=[str(r[0]) for r in yearly],
-            yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
-            report_rows=report_rows,
-            yoy_rows=yoy_rows,
-            yoy_years=years_desc[:2] if len(years_desc) >= 2 else [],
-            mode_label="Tegundaflokkur" if mode == "tegund" else "Svið",
+            year=year,
+            years=years,
             wage_data=wage_data,
             wage_years=all_wage_years,
-            dn=rkv_dn,
+            total_wages=fmt(total_wages),
         )
 
     @app.route("/reykjavik/reports/leikskoli")

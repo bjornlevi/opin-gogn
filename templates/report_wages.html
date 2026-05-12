@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% set page_id = "reports" %}
+
+{% block body %}
+<div class="page-header">
+  <h1>Laun eftir þjónustuflokki</h1>
+  <p>Heildar launakostnaður borgarinnar skipt eftir þjónustuflokki</p>
+</div>
+
+{% if not data_loaded %}
+<div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <div class="ctrl-label">Ár</div>
+      <div class="pill-grid">
+        <a href="?year=all" class="pill{% if year == 'all' %} active{% endif %}">Öll</a>
+        {% for y in years %}
+          <a href="?year={{ y }}" class="pill{% if year == y %} active{% endif %}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="ctrl-label">Flokkar</div>
+      {% for cat in wage_data %}
+      <div style="padding:8px 0; border-bottom:1px solid var(--border); font-size:13px">
+        <span style="display:inline-block; width:12px; height:12px; background:{{ cat.color }}; border-radius:2px; vertical-align:middle; margin-right:8px"></span>
+        <strong>{{ cat.label }}</strong>
+        <br><span style="color:var(--muted); font-size:12px">{{ cat.total }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div>
+    <!-- Trend Chart -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Þróun launakostnaðar eftir flokki</div>
+      <div class="chart-wrap" style="height:300px">
+        <canvas id="wage-trend-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Summary table -->
+    <div class="panel">
+      <div class="section-title">Sundurliðun eftir ári</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Þjónustuflokk</th>
+              {% for wy in wage_years %}
+              <th class="num">{{ wy }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for cat in wage_data %}
+            <tr>
+              <td><strong>{{ cat.label }}</strong></td>
+              {% for value in cat.yearly %}
+              <td class="num">{{ fmt(value) }}</td>
+              {% endfor %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endif %}
+
+<script>
+{% if data_loaded and wage_data %}
+const wageData = {{ wage_data | tojson }};
+const wageYears = {{ wage_years | tojson }};
+
+const wageDatasets = wageData.map(cat => ({
+  label: cat.label,
+  data: cat.yearly,
+  borderColor: cat.color,
+  backgroundColor: cat.color + '20',
+  borderWidth: 2,
+  fill: false,
+  tension: 0.3,
+  pointRadius: 4,
+  pointBackgroundColor: cat.color,
+  pointBorderColor: '#fff',
+  pointBorderWidth: 2,
+}));
+
+new Chart(document.getElementById("wage-trend-chart"), {
+  type: "line",
+  data: {
+    labels: wageYears.map(y => String(y)),
+    datasets: wageDatasets,
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: {
+      legend: { position: "bottom" },
+      tooltip: {
+        callbacks: {
+          label: ctx => ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString("is-IS") + " kr."
+        }
+      }
+    },
+    scales: {
+      y: {
+        ticks: { callback: v => (v/1e9).toFixed(1) + "B" }
+      }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}
