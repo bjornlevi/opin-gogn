@@ -5,7 +5,12 @@
 {% block body %}
 <div class="page-header">
   <h1>Laun eftir þjónustuflokki</h1>
-  <p>Heildar launakostnaður borgarinnar skipt eftir þjónustuflokki</p>
+  <p>
+    {% if level == 0 %}Heildar launakostnaður borgarinnar skipt eftir þjónustuflokki
+    {% elif level == 1 %}Stofnanir í {{ category_name }}
+    {% else %}Einstakar færslur
+    {% endif %}
+  </p>
 </div>
 
 {% if not data_loaded %}
@@ -18,55 +23,69 @@
     <div class="panel">
       <div class="ctrl-label">Ár</div>
       <div class="pill-grid">
-        <a href="?year=all" class="pill{% if year == 'all' %} active{% endif %}">Öll</a>
+        <a href="?{% if category %}category={{ category }}&{% endif %}{% if department %}department={{ department }}&{% endif %}year=all" class="pill{% if year == 'all' %} active{% endif %}">Öll</a>
         {% for y in years %}
-          <a href="?year={{ y }}" class="pill{% if year == y %} active{% endif %}">{{ y }}</a>
+          <a href="?{% if category %}category={{ category }}&{% endif %}{% if department %}department={{ department }}&{% endif %}year={{ y }}" class="pill{% if year == y %} active{% endif %}">{{ y }}</a>
         {% endfor %}
       </div>
-    </div>
-
-    <div class="panel">
-      <div class="ctrl-label">Flokkar</div>
-      {% for cat in wage_data %}
-      <div style="padding:8px 0; border-bottom:1px solid var(--border); font-size:13px">
-        <span style="display:inline-block; width:12px; height:12px; background:{{ cat.color }}; border-radius:2px; vertical-align:middle; margin-right:8px"></span>
-        <strong>{{ cat.label }}</strong>
-        <br><span style="color:var(--muted); font-size:12px">{{ cat.total }}</span>
-      </div>
-      {% endfor %}
     </div>
   </div>
 
   <!-- Main -->
   <div>
-    <!-- Trend Chart -->
-    <div class="panel" style="margin-bottom:12px">
-      <div class="section-title">Þróun launakostnaðar eftir flokki</div>
-      <div class="chart-wrap" style="height:300px">
-        <canvas id="wage-trend-chart"></canvas>
+    {% if level >= 1 %}
+    <div class="panel" style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <a href="?{% if year != 'all' %}year={{ year }}{% endif %}" style="color: var(--muted); text-decoration: none;">← Flokkar</a>
+        <span style="color: var(--muted);">›</span>
+        <span style="font-weight: 600;">{{ category_name }}</span>
+        {% if level >= 2 %}
+          <span style="color: var(--muted);">›</span>
+          <span style="font-weight: 600;">{{ department }}</span>
+        {% endif %}
       </div>
     </div>
+    {% endif %}
 
-    <!-- Summary table -->
     <div class="panel">
-      <div class="section-title">Sundurliðun eftir ári</div>
+      <div class="section-title">
+        {% if level == 0 %}Þjónustuflokkir{% elif level == 1 %}Stofnanir{% else %}Færslur{% endif %}
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Þjónustuflokk</th>
-              {% for wy in wage_years %}
-              <th class="num">{{ wy }}</th>
-              {% endfor %}
+              <th>{% if level == 0 %}Flokkur{% elif level == 1 %}Stofnun{% else %}Ár{% endif %}</th>
+              {% if level < 2 %}
+                {% for wy in wage_years %}
+                <th class="num">{{ wy }}</th>
+                {% endfor %}
+              {% else %}
+                <th class="num">VSK-heiti</th>
+                <th class="num">Upphæð</th>
+              {% endif %}
             </tr>
           </thead>
           <tbody>
-            {% for cat in wage_data %}
-            <tr>
-              <td><strong>{{ cat.label }}</strong></td>
-              {% for value in cat.yearly %}
-              <td class="num">{{ fmt(value) }}</td>
-              {% endfor %}
+            {% for row in rows %}
+            <tr style="cursor: pointer;" onclick="navigate('{{ row.key if level == 0 else row.key }}')">
+              <td>
+                {% if level == 0 or level == 1 %}
+                  <a href="?category={{ row.key }}{% if level == 1 %}&department={{ row.key }}{% endif %}{% if year != 'all' %}&year={{ year }}{% endif %}" style="color: inherit; text-decoration: none;">
+                    {{ row.name }}
+                  </a>
+                {% else %}
+                  {{ row.year }} - {{ row.vm_nafn or row.fyrirtaeki }}
+                {% endif %}
+              </td>
+              {% if level < 2 %}
+                {% for value in row.yearly %}
+                <td class="num">{{ fmt(value) }}</td>
+                {% endfor %}
+              {% else %}
+                <td>{{ row.vm_nafn }}</td>
+                <td class="num">{{ row.raun_fmt }}</td>
+              {% endif %}
             </tr>
             {% endfor %}
           </tbody>
@@ -79,49 +98,8 @@
 {% endif %}
 
 <script>
-{% if data_loaded and wage_data %}
-const wageData = {{ wage_data | tojson }};
-const wageYears = {{ wage_years | tojson }};
-
-const wageDatasets = wageData.map(cat => ({
-  label: cat.label,
-  data: cat.yearly,
-  borderColor: cat.color,
-  backgroundColor: cat.color + '20',
-  borderWidth: 2,
-  fill: false,
-  tension: 0.3,
-  pointRadius: 4,
-  pointBackgroundColor: cat.color,
-  pointBorderColor: '#fff',
-  pointBorderWidth: 2,
-}));
-
-new Chart(document.getElementById("wage-trend-chart"), {
-  type: "line",
-  data: {
-    labels: wageYears.map(y => String(y)),
-    datasets: wageDatasets,
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: { mode: "index" },
-    plugins: {
-      legend: { position: "bottom" },
-      tooltip: {
-        callbacks: {
-          label: ctx => ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString("is-IS") + " kr."
-        }
-      }
-    },
-    scales: {
-      y: {
-        ticks: { callback: v => (v/1e9).toFixed(1) + "B" }
-      }
-    }
-  }
-});
-{% endif %}
+function navigate(key) {
+  // Handled by link onclick
+}
 </script>
 {% endblock %}

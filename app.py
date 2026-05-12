@@ -1756,6 +1756,8 @@ def create_app() -> Flask:
     @app.route("/reykjavik/reports/wages")
     def rkv_reports_wages():
         year = request.args.get("year", "all").rstrip("*")
+        category = request.args.get("category", "")
+        department = request.args.get("department", "")
 
         con = open_con(REYKJAVIK_DATA)
         if con is None:
@@ -1768,67 +1770,132 @@ def create_app() -> Flask:
             "AND fyrirtaeki = 'Reykjavíkurborg' ORDER BY year DESC"
         ).fetchall()]
 
-        wage_filter = f"AND year = {year}" if year != "all" else ""
+        all_wage_years = sorted(years)
+        year_filter = f"AND year = {year}" if year != "all" else ""
 
-        # Get wage data by category
-        wage_rows = con.execute(
-            f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
-            f"FROM data "
-            f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
-            f"AND (is_correction = FALSE OR is_correction IS NULL) {wage_filter} "
-            f"GROUP BY samtala1, year ORDER BY samtala1, year"
-        ).fetchall()
+        if not category:
+            # Level 0: Categories with totals
+            level = 0
+            wage_rows = con.execute(
+                f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
+                f"FROM data "
+                f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
+                f"AND (is_correction = FALSE OR is_correction IS NULL) "
+                f"GROUP BY samtala1, year ORDER BY samtala1, year"
+            ).fetchall()
 
-        category_yearly = {}
-        for cat_key in RKV_WAGE_CATEGORIES:
-            category_yearly[cat_key] = {}
+            category_yearly = {}
+            for cat_key in RKV_WAGE_CATEGORIES:
+                category_yearly[cat_key] = {}
 
-        for dept, wy, total in wage_rows:
-            if dept is None:
-                continue
-            cat = get_wage_category(dept)
-            if cat:
-                if wy not in category_yearly[cat]:
-                    category_yearly[cat][wy] = 0
-                category_yearly[cat][wy] += total
+            for dept, wy, total in wage_rows:
+                if dept is None:
+                    continue
+                cat = get_wage_category(dept)
+                if cat:
+                    if wy not in category_yearly[cat]:
+                        category_yearly[cat][wy] = 0
+                    category_yearly[cat][wy] += total
 
-        all_wage_years = sorted(set(r[1] for r in wage_rows if r[1] is not None))
+            rows = []
+            for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
+                if not category_yearly[cat_key]:
+                    continue
+                yearly_values = [
+                    float(category_yearly[cat_key].get(yr, 0)) for yr in all_wage_years
+                ]
+                if sum(yearly_values) > 0:
+                    rows.append({
+                        "name": cat_info["label"],
+                        "key": cat_key,
+                        "years": all_wage_years,
+                        "yearly": yearly_values,
+                        "total": sum(yearly_values),
+                    })
+            rows.sort(key=lambda x: x["total"], reverse=True)
 
-        wage_data = []
-        for cat_key, cat_info in RKV_WAGE_CATEGORIES.items():
-            if not category_yearly[cat_key]:
-                continue
-            yearly_values = [
-                float(category_yearly[cat_key].get(yr, 0)) for yr in all_wage_years
+        elif not department:
+            # Level 1: Departments in selected category
+            level = 1
+            dept_rows = con.execute(
+                f"SELECT samtala1, year, SUM({RKV_AMOUNT_EXPR}) AS total "
+                f"FROM data "
+                f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
+                f"AND (is_correction = FALSE OR is_correction IS NULL) {year_filter} "
+                f"GROUP BY samtala1, year ORDER BY samtala1, year"
+            ).fetchall()
+
+            dept_yearly = {}
+            for dept, wy, total in dept_rows:
+                if dept is None:
+                    continue
+                cat = get_wage_category(dept)
+                if cat == category:
+                    if dept not in dept_yearly:
+                        dept_yearly[dept] = {}
+                    if wy not in dept_yearly[dept]:
+                        dept_yearly[dept][wy] = 0
+                    dept_yearly[dept][wy] += total
+
+            rows = []
+            for dept, yearly_dict in sorted(dept_yearly.items()):
+                yearly_values = [
+                    float(yearly_dict.get(yr, 0)) for yr in all_wage_years
+                ]
+                if sum(yearly_values) > 0:
+                    rows.append({
+                        "name": dept or "Óskilgreint",
+                        "key": dept,
+                        "years": all_wage_years,
+                        "yearly": yearly_values,
+                        "total": sum(yearly_values),
+                    })
+            rows.sort(key=lambda x: x["total"], reverse=True)
+
+        else:
+            # Level 2: Individual records for department
+            level = 2
+            records = con.execute(
+                f"SELECT year, vm_nafn, fyrirtaeki, CAST(vm_numer AS VARCHAR), "
+                f"raun, samtala0, samtala1, tegund0, tegund1, tegund2, tegund3 "
+                f"FROM data "
+                f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' AND samtala1 = ? "
+                f"AND (is_correction = FALSE OR is_correction IS NULL) {year_filter} "
+                f"ORDER BY raun DESC LIMIT 1000",
+                [department]
+            ).fetchall()
+
+            rows = [
+                {
+                    "year": r[0],
+                    "vm_nafn": r[1] or "",
+                    "fyrirtaeki": r[2] or "",
+                    "vm_numer": r[3] or "",
+                    "raun": r[4],
+                    "raun_fmt": fmt(r[4]),
+                    "samtala0": r[5] or "",
+                    "samtala1": r[6] or "",
+                    "tegund0": r[7] or "",
+                    "tegund1": r[8] or "",
+                    "tegund2": r[9] or "",
+                    "tegund3": r[10] or "",
+                }
+                for r in records
             ]
-            if sum(yearly_values) > 0:
-                wage_data.append({
-                    "label": cat_info["label"],
-                    "color": cat_info["color"],
-                    "years": all_wage_years,
-                    "yearly": yearly_values,
-                    "total": fmt(sum(yearly_values)),
-                })
-        wage_data.sort(key=lambda x: float(x["total"].replace(".", "")), reverse=True)
-
-        # Calculate total wages
-        total_result = con.execute(
-            f"SELECT SUM({RKV_AMOUNT_EXPR}) FROM data "
-            f"WHERE tegund0 = 'Laun' AND fyrirtaeki = 'Reykjavíkurborg' "
-            f"AND (is_correction = FALSE OR is_correction IS NULL) {wage_filter}"
-        ).fetchone()
-        total_wages = total_result[0] if total_result[0] else 0
 
         return render_template(
             "report_wages.html",
             source="reykjavik",
             page_id="reports",
             data_loaded=True,
+            level=level,
             year=year,
             years=years,
-            wage_data=wage_data,
+            category=category,
+            department=department,
             wage_years=all_wage_years,
-            total_wages=fmt(total_wages),
+            rows=rows,
+            category_name=RKV_WAGE_CATEGORIES.get(category, {}).get("label", "") if category else "",
         )
 
     @app.route("/reykjavik/reports/leikskoli")
