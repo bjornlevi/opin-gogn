@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% set page_id = "comparison" %}
+{% block title %}Samanburður — Ríkisreikningur{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-rikisreikningur">Ríkisreikningur</div>
+  <h1>Samanburður við Ríkið</h1>
+  <p>Samanburður á greiðslugögnum Ríkisins og bókhaldsflokkun ríkisreiknings á sameiginlegum árum</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+<div class="layout">
+  <div class="sidebar">
+    <div class="panel">
+      <div class="section-title">Ár</div>
+      <div class="pill-grid">
+        <a class="pill {% if year == 'all' %}active{% endif %}" href="?year=all">Öll</a>
+        {% for y in years %}
+          <a class="pill {% if year | string == (y | replace('*', '')) | string %}active{% endif %}" href="?year={{ y }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+      <a class="footer-link" href="?">Endurstilla</a>
+    </div>
+  </div>
+
+  <div>
+    {% if active_filters %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Virkar síur</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px">
+        {% for f in active_filters %}
+          <span class="pill" style="display:inline-flex; gap:8px; align-items:center; cursor:default">
+            <span>{{ f.label }}: {{ f.value }}</span>
+            <a href="?year=all" style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Ríkisreikningur alls</div>
+        <div class="s-value {% if selected_rikis_total_raw < 0 %}neg{% endif %}">{{ selected_rikis_total }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Samanburðarhæfur hluti</div>
+        <div class="s-value {% if selected_rikis_comparable_raw < 0 %}neg{% endif %}">{{ selected_rikis_comparable }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Ríkið</div>
+        <div class="s-value {% if selected_rikid_total_raw < 0 %}neg{% endif %}">{{ selected_rikid_total }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Bara í ríkisreikningi</div>
+        <div class="s-value {% if selected_scope_gap_raw < 0 %}neg{% endif %}">{{ selected_scope_gap }}</div>
+        <div class="s-sub">laun, tilfærslur, skattar, vextir o.fl.</div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Mismunur innan sambærilegs hluta</div>
+        <div class="s-value {% if selected_timing_gap_raw < 0 %}neg{% endif %}">{{ selected_timing_gap }}</div>
+        <div class="s-sub">líklegur tímasetningar- og flokkunarmunur</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Heildarmismunur</div>
+        <div class="s-value {% if selected_residual_raw < 0 %}neg{% endif %}">{{ selected_residual }}</div>
+        <div class="s-sub">ríkisreikningur alls mínus Ríkið</div>
+      </div>
+    </div>
+
+    {% if chart_labels %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Niðurbrot mismunar eftir árum</div>
+      <div class="chart-wrap" style="height:260px">
+        <canvas id="comparison-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Hvernig á að lesa mismuninn</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Liður</th>
+              <th>Merking</th>
+              <th class="num">Upphæð</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Ríkisreikningur alls</td>
+              <td>Allar bókhalds- og uppgjörsfærslur í ríkisreikningi</td>
+              <td class="num {% if selected_rikis_total_raw < 0 %}neg{% endif %}">{{ selected_rikis_total }}</td>
+            </tr>
+            <tr>
+              <td>Bara í ríkisreikningi</td>
+              <td>Ósambærilegt við greiðslugögn: laun, tilfærslur, skattar, vextir og uppgjör</td>
+              <td class="num {% if selected_scope_gap_raw < 0 %}neg{% endif %}">{{ selected_scope_gap }}</td>
+            </tr>
+            <tr>
+              <td>Samanburðarhæfur hluti</td>
+              <td>Ytri innkaup, leiga, þjónusta, framkvæmdir, vörur og eignir</td>
+              <td class="num {% if selected_rikis_comparable_raw < 0 %}neg{% endif %}">{{ selected_rikis_comparable }}</td>
+            </tr>
+            <tr>
+              <td>Ríkið</td>
+              <td>Greiðslugögn eftir greiðsludegi</td>
+              <td class="num {% if selected_rikid_total_raw < 0 %}neg{% endif %}">{{ selected_rikid_total }}</td>
+            </tr>
+            <tr>
+              <td>Mismunur innan sambærilegs hluta</td>
+              <td>Það sem gæti skýrst af tímabilun, bókhaldsframsetningu og flokkun</td>
+              <td class="num {% if selected_timing_gap_raw < 0 %}neg{% endif %}">{{ selected_timing_gap }}</td>
+            </tr>
+            <tr>
+              <td>Heildarmismunur</td>
+              <td>Samtala beggja skýringarlaga hér að ofan</td>
+              <td class="num {% if selected_residual_raw < 0 %}neg{% endif %}">{{ selected_residual }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Skýringar á mismun</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Flokkur</th>
+              <th>Gildi</th>
+              <th class="num">Ríkisreikningur</th>
+              <th class="num">Ríkið</th>
+              <th class="num">Mismunur</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in bucket_rows %}
+            <tr>
+              <td>{{ row.bucket }}</td>
+              <td>{{ row.scope_label }}</td>
+              <td class="num {% if row.rikis_total_raw < 0 %}neg{% endif %}">{{ row.rikis_total }}</td>
+              <td class="num {% if row.rikid_total_raw < 0 %}neg{% endif %}">{{ row.rikid_total }}</td>
+              <td class="num {% if row.difference_raw < 0 %}neg{% endif %}">{{ row.difference }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-title">Fyrirvari</div>
+      <ul style="margin:0; padding-left:18px; color:var(--muted); font-size:14px">
+        {% for caveat in caveats %}
+          <li>{{ caveat }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded and chart_labels %}
+new Chart(document.getElementById("comparison-chart"), {
+  data: {
+    labels: {{ chart_labels | tojson }},
+    datasets: [{
+      label: "Bara í ríkisreikningi",
+      data: {{ chart_scope_gap | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(220,38,38,.22)",
+      borderColor: "rgba(220,38,38,.85)",
+      borderWidth: 2,
+      borderRadius: 4,
+      stack: "gap",
+    }, {
+      label: "Ríkisreikningur, samanburðarhæfur hluti",
+      data: {{ chart_rikis_comparable | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(180,83,9,.22)",
+      borderColor: "rgba(180,83,9,.9)",
+      borderWidth: 2,
+      borderRadius: 4,
+      hidden: true,
+    }, {
+      label: "Ríkið",
+      data: {{ chart_rikid_total | tojson }},
+      type: "line",
+      borderColor: "rgba(37,99,235,.95)",
+      backgroundColor: "rgba(37,99,235,.12)",
+      borderWidth: 2,
+      pointRadius: 3,
+      tension: 0.25,
+      fill: false,
+    }, {
+      label: "Mismunur innan sambærilegs hluta",
+      data: {{ chart_timing_gap | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(107,114,128,.22)",
+      borderColor: "rgba(31,41,55,.8)",
+      borderWidth: 2,
+      borderRadius: 4,
+      stack: "gap",
+    }, {
+      label: "Heildarmismunur",
+      data: {{ chart_residual | tojson }},
+      type: "line",
+      borderColor: "rgba(31,41,55,.95)",
+      borderDash: [6, 4],
+      borderWidth: 2,
+      pointRadius: 2,
+      tension: 0.2,
+      fill: false,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: {
+      tooltip: {
+        callbacks: {
+          label: ctx => " " + ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString("is-IS") + " kr."
+        }
+      }
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: {
+        grid: { color: "#f0f0f0" },
+        ticks: { callback: v => (v/1e9).toFixed(1) + "B" }
+      }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

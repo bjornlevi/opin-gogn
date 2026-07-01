@@ -4,7 +4,7 @@
 {% block body %}
 <div class="page-header">
   <h1>Opin Gogn</h1>
-  <p>Samanburður á opinberum útgjöldum ríkisins og Reykjavíkurborgar</p>
+  <p>Samanburður á opinberum útgjöldum ríkisins, ríkisreiknings og Reykjavíkurborgar</p>
   <p style="font-size: 0.9em; color: #666; margin-top: 8px;">* Gögn fyrir yfirstandandi ár geta verið ófullkomin</p>
 </div>
 
@@ -89,6 +89,42 @@
       <a href="{{ url_for('rkv_analysis') }}">Greining</a>
       <a href="{{ url_for('rkv_anomalies') }}">Frávik</a>
       <a href="{{ url_for('rkv_reports') }}">Skýrslur</a>
+    </div>
+  </div>
+
+  <div class="source-card {% if not rikisreikningur.available %}unavailable{% endif %}">
+    <div class="source-card-header" style="border-top: 4px solid var(--accent-rikisreikningur)">
+      <span class="source-badge badge-rikisreikningur">Ríkisreikningur</span>
+      <h2>Ríkisreikningur</h2>
+      <p>Samantekt ríkisútgjalda eftir tímabili, ráðuneyti, stofnun og tegund</p>
+    </div>
+    <div class="source-card-body">
+      {% if rikisreikningur.available %}
+        <div class="stats-row" style="margin-bottom:12px">
+          <div class="stat-card">
+            <div class="s-label">Nýjasta ár</div>
+            <div class="s-value">{{ rikisreikningur.latest_year or "–" }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="s-label">Heildarupphæð</div>
+            <div class="s-value" style="font-size:18px">{{ rikisreikningur.latest_total }}</div>
+            <div class="s-sub">kr. (nýjasta ár)</div>
+          </div>
+        </div>
+        {% if rikisreikningur.yearly_labels %}
+          <div class="chart-wrap" style="height:200px">
+            <canvas id="chart-rikisreikningur"></canvas>
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="empty">Gögn ekki til staðar. Keyrðu undirbúningspípuna fyrir `data/rikisreikningur`.</div>
+      {% endif %}
+    </div>
+    <div class="source-card-links">
+      <a href="{{ url_for('rikisreikningur_explorer') }}" class="primary" style="background:var(--accent-rikisreikningur);border-color:var(--accent-rikisreikningur)">Skoðun</a>
+      <a href="{{ url_for('rikisreikningur_wages') }}">Laun</a>
+      <a href="{{ url_for('rikisreikningur_comparison') }}">Samanburður</a>
+      <a href="{{ url_for('rikisreikningur_institutions') }}">Stofnanir</a>
     </div>
   </div>
 
@@ -186,6 +222,17 @@ makeHomeChart(
   {{ reykjavik.yearly_neg    | tojson }},
   {{ reykjavik.yearly_net    | tojson }},
   "13,148,136"
+);
+{% endif %}
+
+{% if rikisreikningur.available and rikisreikningur.yearly_labels %}
+makeHomeChart(
+  "chart-rikisreikningur",
+  {{ rikisreikningur.yearly_labels | tojson }},
+  {{ rikisreikningur.yearly_pos    | tojson }},
+  {{ rikisreikningur.yearly_neg    | tojson }},
+  {{ rikisreikningur.yearly_net    | tojson }},
+  "180,83,9"
 );
 {% endif %}
 </script>

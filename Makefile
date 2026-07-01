@@ -1,5 +1,5 @@
 # Makefile for opin_gogn
-# All data is stored locally under data/rikid/ and data/reykjavik/.
+# All data is stored locally under data/rikid/, data/reykjavik/, and data/rikisreikningur/.
 # Pipeline scripts are borrowed from the sibling repos but run here.
 
 SHELL  := /bin/bash
@@ -9,6 +9,7 @@ SCRIPTS := scripts
 
 RIKID_PARQUET_DIR := data/rikid/parquet
 RKV_PROCESSED_DIR := data/reykjavik/processed
+RIKISREIKNINGUR_PROCESSED_DIR := data/rikisreikningur/processed
 
 # Pipeline overrides
 FROM      ?=
@@ -16,7 +17,8 @@ TO        ?=
 
 .PHONY: web dev install pipeline anomalies \
         rikid-pipeline rikid-anomalies \
-        reykjavik-pipeline reykjavik-anomalies
+        reykjavik-pipeline reykjavik-anomalies \
+        rikisreikningur-pipeline
 
 # ── Web ──────────────────────────────────────────────────────────────────────
 
@@ -44,17 +46,25 @@ pipeline:
 		echo "==> RESET MODE: Full refresh"; \
 		rm -f $(RIKID_PARQUET_DIR)/opnirreikningar*.parquet; \
 		rm -f $(RKV_PROCESSED_DIR)/arsuppgjor*.parquet; \
+		rm -f $(RIKISREIKNINGUR_PROCESSED_DIR)/rikisreikningur*.parquet; \
 		$(MAKE) rikid-pipeline FROM=2017-01-01 || echo "⚠ Rikið pipeline failed (API issue)"; \
 		$(MAKE) reykjavik-pipeline && \
+		$(MAKE) rikisreikningur-pipeline && \
 		$(MAKE) anomalies; \
 	else \
 		echo "==> Incremental update"; \
-		from=$$($(PYTHON) scripts/detect_max_date.py "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet" 2>/dev/null || echo "2017-01-01"); \
+		from=$$($(PYTHON) scripts/detect_max_date.py "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet" --next-day 2>/dev/null || echo "2017-01-01"); \
 		to=$$(date +%Y-%m-%d); \
 		echo "==> rikid:     FROM=$$from TO=$$to"; \
 		echo "==> reykjavik: refresh all years"; \
-		$(MAKE) rikid-pipeline FROM=$$from TO=$$to || echo "⚠ Rikið pipeline failed (API issue)"; \
+		echo "==> rikisreikningur: rebuild from local CSV files"; \
+		if [ "$$from" \> "$$to" ]; then \
+			echo "==> rikid: up to date"; \
+		else \
+			$(MAKE) rikid-pipeline FROM=$$from TO=$$to || echo "⚠ Rikið pipeline failed (API issue)"; \
+		fi; \
 		$(MAKE) reykjavik-pipeline && \
+		$(MAKE) rikisreikningur-pipeline && \
 		$(MAKE) anomalies; \
 	fi
 
@@ -108,7 +118,15 @@ reykjavik-anomalies:
 			--output-flagged "$(RKV_PROCESSED_DIR)/anomalies_flagged.parquet"; \
 	fi
 
+# ── Ríkisreikningur ─────────────────────────────────────────────────────────
+
+rikisreikningur-pipeline:
+	mkdir -p $(RIKISREIKNINGUR_PROCESSED_DIR)
+	@echo "==> Preparing Ríkisreikningur data from local CSV files..."
+	$(PYTHON) $(SCRIPTS)/prepare_rikisreikningur.py \
+		--input-dir "data/rikisreikningur" \
+		--output "$(RIKISREIKNINGUR_PROCESSED_DIR)/rikisreikningur_combined.parquet"
+
 # ── Anomalies (rebuild for both) ──────────────────────────────────────────────
 
 anomalies: rikid-anomalies reykjavik-anomalies
-

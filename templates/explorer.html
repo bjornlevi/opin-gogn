@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% set page_id = "explorer" %}
-{% block title %}Explorer — {% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}{% endblock %}
+{% block title %}Explorer — {% if source == 'rikid' %}Ríkið{% elif source == 'rikisreikningur' %}Ríkisreikningur{% else %}Reykjavík{% endif %}{% endblock %}
 
 {% block body %}
 <div class="page-header">
-  <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% else %}Reykjavík{% endif %}</div>
+  <div class="source-badge badge-{{ source }}">{% if source == 'rikid' %}Ríkið{% elif source == 'rikisreikningur' %}Ríkisreikningur{% else %}Reykjavík{% endif %}</div>
   <h1>Explorer</h1>
-  <p>Skoðaðu einstakar greiðslur og síaðu eftir ári, tegund og stofnun</p>
+  <p>{% if source == 'rikisreikningur' %}Skoðaðu færslur ríkisreiknings og síaðu eftir ári, tegund, ráðuneyti og stofnun{% else %}Skoðaðu einstakar greiðslur og síaðu eftir ári, tegund og stofnun{% endif %}</p>
 </div>
 
 {% if not data_loaded %}
@@ -25,8 +25,8 @@
         <a class="pill {% if year == 'all' %}active{% endif %}"
            href="?year=all&tegund={{ tegund }}&buyer={{ buyer }}&samtala1={{ samtala1 }}&seller={{ seller }}&sign={{ sign }}&limit={{ limit }}">Öll</a>
         {% for y in years %}
-          <a class="pill {% if year | string == y | string %}active{% endif %}"
-             href="?year={{ y }}&tegund={{ tegund }}&buyer={{ buyer }}&samtala1={{ samtala1 }}&seller={{ seller }}&sign={{ sign }}&limit={{ limit }}">{{ y }}{% if loop.first %}*{% endif %}</a>
+          <a class="pill {% if year | string == (y | string | replace('*', '')) %}active{% endif %}"
+             href="?year={{ y }}&tegund={{ tegund }}&buyer={{ buyer }}&samtala1={{ samtala1 }}&seller={{ seller }}&sign={{ sign }}&limit={{ limit }}">{{ y }}</a>
         {% endfor %}
       </div>
     </div>
@@ -61,7 +61,7 @@
 
         {% if samtala1_opts %}
         <div class="ctrl-group">
-          <label class="ctrl-label">Svið</label>
+          <label class="ctrl-label">{{ samtala1_label or "Svið" }}</label>
           <input id="search-samtala1" type="text" placeholder="Leita í valkostum..." style="margin-bottom:6px" />
           <select id="select-samtala1" name="samtala1">
             <option value="all" {% if samtala1 == 'all' %}selected{% endif %}>— Allar —</option>
@@ -209,7 +209,7 @@
     <div class="panel">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
         <div class="section-title" style="margin: 0;">Einstakar færslur (fyrstu {{ limit }})</div>
-        <a href="{% if source == 'rikid' %}{{ url_for('rikid_explorer_download') }}{% else %}{{ url_for('rkv_explorer_download') }}{% endif %}?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&samtala1={{ samtala1 }}&seller={{ seller }}&sign={{ sign }}"
+        <a href="{% if source == 'rikid' %}{{ url_for('rikid_explorer_download') }}{% elif source == 'rikisreikningur' %}{{ url_for('rikisreikningur_explorer_download') }}{% else %}{{ url_for('rkv_explorer_download') }}{% endif %}?year={{ year }}&tegund={{ tegund }}&buyer={{ buyer }}&samtala1={{ samtala1 }}&seller={{ seller }}&sign={{ sign }}"
            style="padding: 8px 16px; background: var(--accent); color: white; border-radius: 6px; text-decoration: none; font-size: 0.875rem;">
           ⬇ CSV (öll gögn)
         </a>
@@ -272,8 +272,8 @@ new Chart(document.getElementById("yearly-chart"), {
     datasets: [{
       label: "Útgjöld (kr.)",
       data: {{ yearly_values | tojson }},
-      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .2)",
-      borderColor:     "rgba({{ '37,99,235' if source == 'rikid' else '13,148,136' }}, .9)",
+      backgroundColor: "rgba({{ '37,99,235' if source == 'rikid' else '180,83,9' if source == 'rikisreikningur' else '13,148,136' }}, .2)",
+      borderColor:     "rgba({{ '37,99,235' if source == 'rikid' else '180,83,9' if source == 'rikisreikningur' else '13,148,136' }}, .9)",
       borderWidth: 2,
       borderRadius: 4,
     }]

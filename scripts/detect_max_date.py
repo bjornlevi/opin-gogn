@@ -4,7 +4,7 @@
 Used to determine where to start incremental downloads.
 """
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 try:
@@ -14,7 +14,7 @@ except ImportError:
     sys.exit(0)
 
 
-def get_max_date(parquet_file: Path, date_column: str = "Dags.greiðslu") -> str:
+def get_max_date(parquet_file: Path, date_column: str = "Dags.greiðslu", next_day: bool = False) -> str:
     """Get the maximum date from a Parquet file's date column.
 
     Returns date in YYYY-MM-DD format, or 2017-01-01 if file doesn't exist.
@@ -31,9 +31,12 @@ def get_max_date(parquet_file: Path, date_column: str = "Dags.greiðslu") -> str
         if result and result[0]:
             date_obj = result[0]
             if isinstance(date_obj, str):
-                return date_obj.split()[0]  # Handle datetime string
+                date_obj = datetime.fromisoformat(date_obj.split()[0]).date()
             else:
-                return date_obj.isoformat()
+                date_obj = date_obj.date() if hasattr(date_obj, "date") else date_obj
+            if next_day:
+                date_obj = date_obj + timedelta(days=1)
+            return date_obj.isoformat()
 
         return "2017-01-01"
     except Exception:
@@ -41,11 +44,13 @@ def get_max_date(parquet_file: Path, date_column: str = "Dags.greiðslu") -> str
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: detect_max_date.py <parquet_file> [date_column]")
+    next_day = "--next-day" in sys.argv
+    args = [arg for arg in sys.argv[1:] if arg != "--next-day"]
+    if len(args) < 1:
+        print("Usage: detect_max_date.py <parquet_file> [date_column] [--next-day]")
         sys.exit(1)
 
-    parquet_file = Path(sys.argv[1])
-    date_column = sys.argv[2] if len(sys.argv) > 2 else "Dags.greiðslu"
+    parquet_file = Path(args[0])
+    date_column = args[1] if len(args) > 1 else "Dags.greiðslu"
 
-    print(get_max_date(parquet_file, date_column))
+    print(get_max_date(parquet_file, date_column, next_day=next_day))

@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% set page_id = "wages" %}
+{% block title %}Laun — Ríkisreikningur{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-rikisreikningur">Ríkisreikningur</div>
+  <h1>Laun og launatengd gjöld</h1>
+  <p>Greindu launafærslur ríkisreiknings eftir kjarna-launum, álagi, orlofi, gjöldum, lífeyrisskuldbindingum og leiðréttingum</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+<div class="layout">
+  <div class="sidebar">
+    <div class="panel">
+      <div class="section-title">Ár</div>
+      <div class="pill-grid">
+        <a class="pill {% if year == 'all' %}active{% endif %}" href="?year=all">Öll</a>
+        {% for y in years %}
+          <a class="pill {% if year | string == (y | replace('*', '')) | string %}active{% endif %}" href="?year={{ y }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+      <a class="footer-link" href="?">Endurstilla</a>
+    </div>
+  </div>
+
+  <div>
+    {% if active_filters %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Virkar síur</div>
+      <div style="display:flex; flex-wrap:wrap; gap:6px">
+        {% for f in active_filters %}
+          <span class="pill" style="display:inline-flex; gap:8px; align-items:center; cursor:default">
+            <span>{{ f.label }}: {{ f.value }}</span>
+            <a href="?year=all" style="font-weight:700; color:inherit; text-decoration:none; line-height:1">×</a>
+          </span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Viðmiðunarár</div>
+        <div class="s-value">{{ focus_year }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Launatengt alls</div>
+        <div class="s-value {% if focus_total_raw < 0 %}neg{% endif %}">{{ focus_total }}</div>
+        <div class="s-sub">{{ fmt_pct(focus_total_pct) if focus_total_pct is not none else "–" }} frá fyrra ári</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Kjarna-laun</div>
+        <div class="s-value {% if focus_core_pay_raw < 0 %}neg{% endif %}">{{ focus_core_pay }}</div>
+        <div class="s-sub">{{ fmt_pct(focus_core_pct) if focus_core_pct is not none else "–" }} frá fyrra ári</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Yfirvinna og álag</div>
+        <div class="s-value {% if focus_overtime_raw < 0 %}neg{% endif %}">{{ focus_overtime }}</div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Launatengd gjöld</div>
+        <div class="s-value {% if focus_payroll_taxes_raw < 0 %}neg{% endif %}">{{ focus_payroll_taxes }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Orlofsskuldbinding</div>
+        <div class="s-value {% if focus_leave_cost_raw < 0 %}neg{% endif %}">{{ focus_leave_cost }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Lífeyrisskuldbindingar</div>
+        <div class="s-value {% if focus_pension_change_raw < 0 %}neg{% endif %}">{{ focus_pension_change }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Starfsmannakostnaður</div>
+        <div class="s-value {% if focus_staff_cost_raw < 0 %}neg{% endif %}">{{ focus_staff_cost }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Mótfærslur</div>
+        <div class="s-value {% if focus_offsets_raw < 0 %}neg{% endif %}">{{ focus_offsets }}</div>
+      </div>
+    </div>
+
+    {% if chart_labels %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Niðurbrot launafærslna eftir árum</div>
+      <div class="chart-wrap" style="height:300px">
+        <canvas id="wage-chart"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Ár yfir ár</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ár</th>
+              <th class="num">Launatengt alls</th>
+              <th class="num">Breyting</th>
+              <th class="num">Kjarna-laun</th>
+              <th class="num">Breyting</th>
+              <th class="num">Yfirvinna og álag</th>
+              <th class="num">Launatengd gjöld</th>
+              <th class="num">Orlofsskuldbinding</th>
+              <th class="num">Lífeyrisskuldbindingar</th>
+              <th class="num">Starfsmannakostnaður</th>
+              <th class="num">Mótfærslur</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in year_rows %}
+            <tr>
+              <td>{{ row.year }}</td>
+              <td class="num {% if row.total_raw < 0 %}neg{% endif %}">{{ row.total }}</td>
+              <td class="num {% if row.total_pct is not none and row.total_pct < 0 %}neg{% endif %}">{{ fmt_pct(row.total_pct) if row.total_pct is not none else "–" }}</td>
+              <td class="num {% if row.core_pay_raw < 0 %}neg{% endif %}">{{ row.core_pay }}</td>
+              <td class="num {% if row.core_pct is not none and row.core_pct < 0 %}neg{% endif %}">{{ fmt_pct(row.core_pct) if row.core_pct is not none else "–" }}</td>
+              <td class="num">{{ row.overtime }}</td>
+              <td class="num">{{ row.payroll_taxes }}</td>
+              <td class="num">{{ row.leave_cost }}</td>
+              <td class="num">{{ row.pension_change }}</td>
+              <td class="num">{{ row.staff_cost }}</td>
+              <td class="num {% if row.offsets.startswith('-') %}neg{% endif %}">{{ row.offsets }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Stærstu undirliðir innan launabúnta</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Búnt</th>
+              <th class="num">Samtals</th>
+              <th>Stærstu tegundir</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in bucket_rows %}
+            <tr>
+              <td>{{ row.bucket }}</td>
+              <td class="num {% if row.total_raw < 0 %}neg{% endif %}">{{ row.total }}</td>
+              <td>
+                {% for cat in row.top_categories %}
+                  <div style="display:flex; justify-content:space-between; gap:12px">
+                    <span>{{ cat.category }}</span>
+                    <span class="{% if cat.amount_raw < 0 %}neg{% endif %}" style="white-space:nowrap">{{ cat.amount }}</span>
+                  </div>
+                {% endfor %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-title">Fyrirvari</div>
+      <ul style="margin:0; padding-left:18px; color:var(--muted); font-size:14px">
+        {% for caveat in caveats %}
+          <li>{{ caveat }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded and chart_labels %}
+new Chart(document.getElementById("wage-chart"), {
+  data: {
+    labels: {{ chart_labels | tojson }},
+    datasets: [{
+      label: "Kjarna-laun",
+      data: {{ chart_core_pay | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(180,83,9,.75)",
+      borderColor: "rgba(154,52,18,.95)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Yfirvinna og álag",
+      data: {{ chart_overtime | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(217,119,6,.65)",
+      borderColor: "rgba(180,83,9,.95)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Orlof",
+      data: {{ chart_leave_cost | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(251,191,36,.55)",
+      borderColor: "rgba(217,119,6,.95)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Launatengd gjöld",
+      data: {{ chart_payroll_taxes | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(120,113,108,.45)",
+      borderColor: "rgba(87,83,78,.95)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Lífeyrisskuldbindingar",
+      data: {{ chart_pension_change | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(31,41,55,.35)",
+      borderColor: "rgba(31,41,55,.95)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Starfsmannakostnaður",
+      data: {{ chart_staff_cost | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(14,116,144,.35)",
+      borderColor: "rgba(14,116,144,.9)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Mótfærslur og leiðréttingar",
+      data: {{ chart_offsets | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(220,38,38,.28)",
+      borderColor: "rgba(185,28,28,.9)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Annað launatengt",
+      data: {{ chart_other_wage | tojson }},
+      type: "bar",
+      backgroundColor: "rgba(99,102,241,.25)",
+      borderColor: "rgba(79,70,229,.8)",
+      borderWidth: 1,
+      stack: "wages",
+    }, {
+      label: "Launatengt alls",
+      data: {{ chart_total | tojson }},
+      type: "line",
+      borderColor: "rgba(17,24,39,.95)",
+      backgroundColor: "rgba(17,24,39,.1)",
+      borderWidth: 2,
+      pointRadius: 3,
+      tension: 0.2,
+      fill: false,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: {
+      tooltip: {
+        callbacks: {
+          label: ctx => " " + ctx.dataset.label + ": " + ctx.parsed.y.toLocaleString("is-IS") + " kr."
+        }
+      }
+    },
+    scales: {
+      x: { stacked: true, grid: { display: false } },
+      y: {
+        stacked: true,
+        grid: { color: "#f0f0f0" },
+        ticks: { callback: v => (v / 1e9).toFixed(1) + "B" }
+      }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}

@@ -9,7 +9,6 @@ import argparse
 import calendar
 import datetime as dt
 import zipfile
-import io
 from pathlib import Path
 from datetime import timedelta
 
@@ -169,23 +168,34 @@ def convert_to_parquet(content: bytes, output_path: Path, chunk_label: str) -> b
         temp_path.unlink(missing_ok=True)
 
 
-def combine_chunks(chunks_dir: Path, output_file: Path) -> None:
-    """Combine all chunk Parquet files into a single output file."""
-    chunks = sorted(chunks_dir.glob("*.parquet"))
-    if not chunks:
-        raise RuntimeError("No chunk files to combine")
+def sql_path(path: Path) -> str:
+    return str(path).replace("'", "''")
 
-    print(f"Combining {len(chunks)} chunks...")
+
+def combine_parquets(parquet_files: list[Path], output_file: Path) -> None:
+    """Combine parquet files into a single deduplicated output file."""
+    if not parquet_files:
+        raise RuntimeError("No parquet files to combine")
+
+    print(f"Combining {len(parquet_files)} parquet inputs...")
+    selects = [
+        f"SELECT * FROM read_parquet('{sql_path(path)}')"
+        for path in parquet_files
+    ]
+    union_sql = " UNION ALL ".join(selects)
+
     con = duckdb.connect(":memory:")
+    tmp_output = output_file.with_suffix(".tmp.parquet")
     try:
-        glob_pattern = str(chunks_dir / "*.parquet")
         con.execute(
-            f"COPY (SELECT * FROM parquet_scan('{glob_pattern}')) "
-            f"TO '{output_file}' (FORMAT PARQUET)"
+            f"COPY (SELECT DISTINCT * FROM ({union_sql}) t) "
+            f"TO '{sql_path(tmp_output)}' (FORMAT PARQUET)"
         )
+        tmp_output.replace(output_file)
         print(f"Combined to: {output_file}")
     finally:
         con.close()
+        tmp_output.unlink(missing_ok=True)
 
 
 def main():
@@ -247,12 +257,11 @@ def main():
         print("No data downloaded", file=sys.stderr)
         sys.exit(1)
 
-    if len(chunk_files) > 1:
-        combine_chunks(chunks_dir, output_file)
-    else:
-        # Single chunk - just copy it
-        chunk_files[0].rename(output_file)
-        print(f"Moved to: {output_file}")
+    combine_inputs = []
+    if output_file.exists():
+        combine_inputs.append(output_file)
+    combine_inputs.extend(chunk_files)
+    combine_parquets(combine_inputs, output_file)
 
     print(f"✓ Total: {total_rows} rows in {output_file}")
 

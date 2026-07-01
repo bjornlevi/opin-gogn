@@ -6,6 +6,8 @@ import csv
 import io
 import math
 import os
+import re
+import unicodedata
 from pathlib import Path
 
 import duckdb
@@ -43,6 +45,14 @@ REYKJAVIK_ANOMALIES = Path(
 REYKJAVIK_ANOMALIES_ALL = Path(
     os.getenv("REYKJAVIK_ANOMALIES_ALL",
               str(BASE_DIR / "data/reykjavik/processed/anomalies_yoy_all.parquet"))
+)
+RIKISREIKNINGUR_DATA = Path(
+    os.getenv("RIKISREIKNINGUR_PARQUET",
+              str(BASE_DIR / "data/rikisreikningur/processed/rikisreikningur_combined.parquet"))
+)
+RIKID_INSTITUTIONS_RECONCILIATION = Path(
+    os.getenv("RIKID_INSTITUTIONS_RECONCILIATION",
+              str(BASE_DIR / "data/rikisreikningur/processed/rikid_institutions_reconciliation.csv"))
 )
 
 # ---------------------------------------------------------------------------
@@ -107,6 +117,17 @@ def build_where(conditions: list[tuple[str, object]]) -> tuple[str, list]:
     return sql, params
 
 
+def normalize_name(text: str) -> str:
+    text = text.lower().strip()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.replace("&", " og ")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    text = re.sub(r"\b(hf|ohf|ehf|ses|slf)\b", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def _rikid_headline() -> dict:
     con = open_rikid_con(RIKID_DATA)
     if con is None:
@@ -163,6 +184,41 @@ def _rkv_headline() -> dict:
             "yearly_net":    [float(r[3]) if r[3] is not None else 0 for r in yearly],
             "latest_year":   (str(years[0]) + "*") if years else None,
             "latest_total":  fmt(latest[3]) if latest else "–",
+        }
+    except Exception as e:
+        return {"available": False, "error": str(e)}
+
+
+def _rikisreikningur_headline() -> dict:
+    con = open_con(RIKISREIKNINGUR_DATA)
+    if con is None:
+        return {"available": False}
+    try:
+        years = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+        partial_years = {
+            int(r[0]) for r in con.execute(
+                "SELECT DISTINCT year FROM data WHERE is_partial_year = TRUE AND year IS NOT NULL"
+            ).fetchall()
+        }
+        yearly = con.execute(
+            "SELECT year, "
+            "SUM(CASE WHEN amount > 0 THEN amount END) AS pos, "
+            "SUM(CASE WHEN amount < 0 THEN amount END) AS neg, "
+            "SUM(amount) AS net "
+            "FROM data GROUP BY year ORDER BY year"
+        ).fetchall()
+        latest = next((r for r in yearly if r[0] == years[0]), None) if years else None
+        return {
+            "available": True,
+            "years": years,
+            "yearly_labels": [str(r[0]) + ("*" if int(r[0]) in partial_years else "") for r in yearly],
+            "yearly_pos": [float(r[1]) if r[1] is not None else 0 for r in yearly],
+            "yearly_neg": [float(r[2]) if r[2] is not None else 0 for r in yearly],
+            "yearly_net": [float(r[3]) if r[3] is not None else 0 for r in yearly],
+            "latest_year": (str(years[0]) + "*") if years and int(years[0]) in partial_years else (str(years[0]) if years else None),
+            "latest_total": fmt(latest[3]) if latest else "–",
         }
     except Exception as e:
         return {"available": False, "error": str(e)}
@@ -292,6 +348,158 @@ def get_wage_category(department: str) -> str | None:
             return cat
     return None
 
+# ===========================================================================
+# RIKISREIKNINGUR
+# ===========================================================================
+
+RIKISREIKNINGUR_AMOUNT = "amount"
+RIKISREIKNINGUR_DISPLAY = {
+    "year": "Ár",
+    "Timabil": "Tímabil",
+    "RaduneytiHeiti": "Ráðuneyti",
+    "StofnunHeiti": "Stofnun",
+    "FjarlagavidfangHeiti": "Fjárlagaliður",
+    "MalefnasvidHeiti": "Málefnasvið",
+    "MalaflokkurNumerOgHeiti": "Málaflokkur",
+    "TegundL2Heiti": "Tegund L2",
+    "TegundL3Heiti": "Tegund L3",
+    "TegundHeiti": "Tegund",
+    "amount": "Upphæð",
+}
+
+
+def rikisreikningur_dn(col: str) -> str:
+    return RIKISREIKNINGUR_DISPLAY.get(col, col)
+
+
+RIKID_COMPARISON_BUCKET_SQL = """
+CASE
+    WHEN lower("Tegund") LIKE '%leiga%' OR lower("Tegund") LIKE '%húsnæði%' THEN 'Húsnæði og leiga'
+    WHEN lower("Tegund") LIKE '%þjónust%' OR lower("Tegund") LIKE '%sérfræði%' OR lower("Tegund") LIKE '%verkkaup%'
+      OR lower("Tegund") LIKE '%verkfræð%' OR lower("Tegund") LIKE '%lögfræð%' OR lower("Tegund") LIKE '%rannsóknarstof%'
+      OR lower("Tegund") LIKE '%öryggisgæsla%' OR lower("Tegund") LIKE '%ræsting%' OR lower("Tegund") LIKE '%sjúkraflutn%'
+      OR lower("Tegund") LIKE '%tölvuvinnsla%' THEN 'Þjónusta og ráðgjöf'
+    WHEN lower("Tegund") LIKE '%mannvirkja%' OR lower("Tegund") LIKE '%viðhald%' OR lower("Tegund") LIKE '%rafverk%'
+      OR lower("Tegund") LIKE '%tréverk%' OR lower("Tegund") LIKE '%verkstæði%' OR lower("Tegund") LIKE '%múrverk%'
+      OR lower("Tegund") LIKE '%vegir%' THEN 'Framkvæmdir og viðhald'
+    WHEN lower("Tegund") LIKE '%lyf%' OR lower("Tegund") LIKE '%prófefni%' OR lower("Tegund") LIKE '%matv%'
+      OR lower("Tegund") LIKE '%einnota%' OR lower("Tegund") LIKE '%sjúkrahúsvörur%' OR lower("Tegund") LIKE '%rafmagn%'
+      OR lower("Tegund") LIKE '%heitt vatn%' OR lower("Tegund") LIKE '%fasteignagjöld%' THEN 'Vörur, lyf og rekstrarinnkaup'
+    WHEN lower("Tegund") LIKE '%hugbúnaður%' OR lower("Tegund") LIKE '%hugbúnaðargerð%' OR lower("Tegund") LIKE '%tæki%'
+      OR lower("Tegund") LIKE '%áhöld%' OR lower("Tegund") LIKE '%eignir%' OR lower("Tegund") LIKE '%farartæki%' THEN 'Tæki, hugbúnaður og eignir'
+    WHEN lower("Tegund") LIKE 'til %' OR lower("Tegund") LIKE '%millifærsl%' OR lower("Tegund") LIKE '%vsk%'
+      OR lower("Tegund") LIKE '%ríkissjóður%' OR lower("Tegund") LIKE '%ríkisstofnanir%' OR lower("Tegund") LIKE '%lánastofnana%' THEN 'Tilfærslur, skattar og uppgjör'
+    ELSE 'Annað'
+END
+"""
+
+RIKISREIKNINGUR_COMPARISON_BUCKET_SQL = """
+CASE
+    WHEN lower("TegundHeiti") LIKE '%grunnstörf%' OR lower("TegundHeiti") LIKE '%yfirvinna%' OR lower("TegundHeiti") LIKE '%vaktaálag%'
+      OR lower("TegundHeiti") LIKE '%dagvinnu%' OR lower("TegundHeiti") LIKE '%tímakaup%' OR lower("TegundHeiti") LIKE '%orlof%'
+      OR lower("TegundHeiti") LIKE '%aukagreiðsl%' OR lower("TegundHeiti") LIKE '%launatengd%' THEN 'Laun og launatengd gjöld'
+    WHEN lower("TegundHeiti") LIKE 'til %' OR lower("TegundHeiti") LIKE '%hluti sveitarfélaga%' OR lower("TegundHeiti") LIKE '%hluti rétthafa%'
+      OR lower("TegundHeiti") LIKE '%framlag%' THEN 'Tilfærslur og framlög'
+    WHEN lower("TegundHeiti") LIKE '%vaxta%' OR lower("TegundHeiti") LIKE '%verðbóta%' OR lower("TegundHeiti") LIKE '%skatt%'
+      OR lower("TegundHeiti") LIKE '%virðisaukaskatt%' OR lower("TegundHeiti") LIKE '% vsk %' OR lower("TegundHeiti") LIKE 'egr. vsk%'
+      OR lower("TegundHeiti") LIKE '%fjármagn%' OR lower("TegundHeiti") LIKE '%ríkisábyrgða%' OR lower("TegundHeiti") LIKE '%lífeyrisskuldbinding%'
+      OR lower("TegundHeiti") LIKE '%virðisrýrnun%' OR lower("TegundHeiti") LIKE '%afskrif%' THEN 'Fjármagnsliðir, skattar og uppgjör'
+    WHEN lower("TegundHeiti") LIKE '%leiga%' OR lower("TegundHeiti") LIKE '%húseignir%' THEN 'Húsnæði og leiga'
+    WHEN lower("TegundHeiti") LIKE '%þjónust%' OR lower("TegundHeiti") LIKE '%sérfræði%' OR lower("TegundHeiti") LIKE '%verkkaup%'
+      OR lower("TegundHeiti") LIKE '%verkfræð%' OR lower("TegundHeiti") LIKE '%lögfræð%' OR lower("TegundHeiti") LIKE '%rannsóknarstof%'
+      OR lower("TegundHeiti") LIKE '%öryggisgæsla%' OR lower("TegundHeiti") LIKE '%ræsting%' OR lower("TegundHeiti") LIKE '%sjúkraflutn%'
+      OR lower("TegundHeiti") LIKE '%tölvuvinnsla%' THEN 'Þjónusta og ráðgjöf'
+    WHEN lower("TegundHeiti") LIKE '%mannvirkja%' OR lower("TegundHeiti") LIKE '%viðhald%' OR lower("TegundHeiti") LIKE '%rafverk%'
+      OR lower("TegundHeiti") LIKE '%tréverk%' OR lower("TegundHeiti") LIKE '%verkstæði%' OR lower("TegundHeiti") LIKE '%múrverk%'
+      OR lower("TegundHeiti") LIKE '%vegir%' THEN 'Framkvæmdir og viðhald'
+    WHEN lower("TegundHeiti") LIKE '%lyf%' OR lower("TegundHeiti") LIKE '%prófefni%' OR lower("TegundHeiti") LIKE '%matv%'
+      OR lower("TegundHeiti") LIKE '%einnota%' OR lower("TegundHeiti") LIKE '%rafmagn%' OR lower("TegundHeiti") LIKE '%heitt vatn%'
+      OR lower("TegundHeiti") LIKE '%sorphreinsun%' OR lower("TegundHeiti") LIKE '%fasteignagjöld%' THEN 'Vörur, lyf og rekstrarinnkaup'
+    WHEN lower("TegundHeiti") LIKE '%hugbúnaður%' OR lower("TegundHeiti") LIKE '%hugbúnaðargerð%' OR lower("TegundHeiti") LIKE '%tæki%'
+      OR lower("TegundHeiti") LIKE '%áhöld%' OR lower("TegundHeiti") LIKE '%eignir%' OR lower("TegundHeiti") LIKE '%farartæki%' THEN 'Tæki, hugbúnaður og eignir'
+    ELSE 'Annað'
+END
+"""
+
+RIKISREIKNINGUR_WAGE_BUCKET_SQL = """
+CASE
+    WHEN "TegundL2Heiti" <> 'Launagjöld' THEN NULL
+    WHEN "TegundL3Heiti" = 'Dagvinnulaun' THEN 'Kjarna-laun'
+    WHEN "TegundL3Heiti" IN ('Yfirvinna', 'Vaktaálagsgreiðslur', 'Aukagreiðslur') THEN 'Yfirvinna og álag'
+    WHEN "TegundL3Heiti" = 'Launatengd gjöld' THEN 'Launatengd gjöld'
+    WHEN "TegundL3Heiti" = 'Breyting á orlofsskuldbindingu' THEN 'Orlofsskuldbinding'
+    WHEN lower("TegundHeiti") LIKE '%lífeyrisskuldbinding%'
+      OR lower("TegundHeiti") LIKE '%lifeyrisskuldbinding%'
+    THEN 'Lífeyrisskuldbindingar'
+    WHEN "TegundL3Heiti" = 'Starfsmannakostnaður' THEN 'Starfsmannakostnaður'
+    WHEN lower("TegundHeiti") LIKE '%lækkun launaliða%'
+      OR lower("TegundHeiti") LIKE '%ábyrgðasjóðs launa%'
+      OR lower("TegundHeiti") LIKE '%ábyrgðagjald atvinnurekenda vegna launa%'
+      OR lower("TegundHeiti") LIKE '%umboðslaun%'
+      OR lower("TegundHeiti") LIKE '%sölulaun%'
+      OR lower("TegundHeiti") LIKE '%innheimtulaun%'
+      OR lower("TegundHeiti") LIKE '%sjómannslaun%'
+      OR lower("TegundHeiti") LIKE '%framtölum og staðgreiðsluskrá%'
+    THEN 'Mótfærslur og leiðréttingar'
+    WHEN "TegundL3Heiti" IN ('Ræsting', 'Önnur launagjöld ótalin annars staðar') THEN 'Annað launatengt'
+    WHEN lower("TegundHeiti") LIKE '%laun%'
+      OR lower("TegundHeiti") LIKE '%yfirvinna%'
+      OR lower("TegundHeiti") LIKE '%vakta%'
+      OR lower("TegundHeiti") LIKE '%orlof%'
+      OR lower("TegundHeiti") LIKE '%tímakaup%'
+      OR lower("TegundHeiti") LIKE '%timakaup%'
+      OR lower("TegundHeiti") LIKE '%lífeyr%'
+      OR lower("TegundHeiti") LIKE '%lifeyr%'
+    THEN 'Annað launatengt'
+    ELSE NULL
+END
+"""
+
+RIKISREIKNINGUR_WAGE_BUCKET_ORDER = [
+    "Kjarna-laun",
+    "Yfirvinna og álag",
+    "Orlofsskuldbinding",
+    "Launatengd gjöld",
+    "Lífeyrisskuldbindingar",
+    "Starfsmannakostnaður",
+    "Mótfærslur og leiðréttingar",
+    "Annað launatengt",
+]
+
+COMPARABLE_BUCKETS = {
+    "Húsnæði og leiga",
+    "Þjónusta og ráðgjöf",
+    "Framkvæmdir og viðhald",
+    "Vörur, lyf og rekstrarinnkaup",
+    "Tæki, hugbúnaður og eignir",
+}
+
+RIKIS_TO_RIKID_ALIASES = {
+    "Landlæknir": ("Embætti landlæknis", "alias"),
+    "Gljúfrasteinn - Hús skáldsins": ("Gljúfrasteinn: hús skáldsins", "alias"),
+    "Hæstiréttur": ("Hæstiréttur Íslands", "alias"),
+    "Framhaldsskólinn í A-Skaftafellssýslu": ("Framhaldsskólinn í Austur-Skaftafellssýslu", "alias"),
+    "Sjúkrahúsið á Akureyri": ("Sjúkrahúsið Akureyri", "alias"),
+    "Tilraunastöð Háskólans að Keldum": ("Tilraunastöð Háskóla Íslands í meinafræði að Keldum", "alias"),
+    "Vegagerðin, rekstur": ("Vegagerðin", "alias"),
+    "Náttúrufræðistofnun Íslands": ("Náttúrufræðistofnun", "alias"),
+    "Mannvirkjastofnun": ("Húsnæðis-, mannvirkja- og skipulagsstofnun", "predecessor"),
+    "Skipulagsstofnun": ("Húsnæðis-, mannvirkja- og skipulagsstofnun", "predecessor"),
+    "Ríkisskattstjóri": ("Skatturinn", "predecessor"),
+    "Skattrannsóknarstjóri ríkisins": ("Skatturinn", "predecessor"),
+    "Héraðsdómstólar": ("Héraðsdómar", "predecessor"),
+    "Dómstólasýslan": ("Héraðsdómar", "predecessor"),
+    "Sýslumaður Austurlands": ("Sýslumaðurinn á Austurlandi", "alias"),
+    "Sýslumaður höfuðborgarsvæðisins": ("Sýslumaðurinn á Höfuðborgarsvæðinu", "alias"),
+    "Sýslumaður Norðurlands eystra": ("Sýslumaðurinn á Norðurlandi eystra", "alias"),
+    "Sýslumaður Norðurlands vestra": ("Sýslumaðurinn á Norðurlandi vestra", "alias"),
+    "Sýslumaður Suðurlands": ("Sýslumaðurinn á Suðurlandi", "alias"),
+    "Sýslumaður Suðurnesja": ("Sýslumaðurinn á Suðurnesjum", "alias"),
+    "Sýslumaður Vestfjarða": ("Sýslumaðurinn á Vestfjörðum", "alias"),
+    "Sýslumaður Vesturlands": ("Sýslumaðurinn á Vesturlandi", "alias"),
+    "Sýslumaður Vestmannaeyja": ("Sýslumaðurinn í Vestmannaeyjum", "alias"),
+}
+
 
 def create_app() -> Flask:
     """Create and configure the Flask application."""
@@ -327,7 +535,8 @@ def create_app() -> Flask:
         # Quick headline stats for each source
         rikid_stat = _rikid_headline()
         rkv_stat = _rkv_headline()
-        return render_template("home.html", rikid=rikid_stat, reykjavik=rkv_stat)
+        rikisreikningur_stat = _rikisreikningur_headline()
+        return render_template("home.html", rikid=rikid_stat, reykjavik=rkv_stat, rikisreikningur=rikisreikningur_stat)
 
     # ===========================================================================
     # RIKID
@@ -2112,6 +2321,779 @@ def create_app() -> Flask:
             output.getvalue(),
             mimetype="text/csv",
             headers={"Content-Disposition": "attachment; filename=leikskoli_records.csv"}
+        )
+
+    # =========================================================================
+    # RIKISREIKNINGUR
+    # =========================================================================
+
+    @app.route("/rikisreikningur/")
+    def rikisreikningur_explorer():
+        year = request.args.get("year", "all").rstrip("*")
+        tegund = request.args.get("tegund", "all")
+        buyer = request.args.get("buyer", "all")
+        samtala1 = request.args.get("samtala1", "all")
+        sign = request.args.get("sign", "all")
+        limit = max(1, min(500, int(request.args.get("limit", 50))))
+        page = max(1, int(request.args.get("page", 1)))
+        offset = (page - 1) * limit
+
+        con = open_con(RIKISREIKNINGUR_DATA)
+        if con is None:
+            return render_template("explorer.html", source="rikisreikningur", data_loaded=False,
+                                   error=f"Gögn finnast ekki: {RIKISREIKNINGUR_DATA}")
+
+        where, params = build_where([
+            ("year", year if year != "all" else None),
+            ("TegundHeiti", tegund if tegund != "all" else None),
+            ("RaduneytiHeiti", buyer if buyer != "all" else None),
+            ("StofnunHeiti", samtala1 if samtala1 != "all" else None),
+        ])
+        chart_where, chart_params = build_where([
+            ("TegundHeiti", tegund if tegund != "all" else None),
+            ("RaduneytiHeiti", buyer if buyer != "all" else None),
+            ("StofnunHeiti", samtala1 if samtala1 != "all" else None),
+        ])
+
+        if sign == "pos":
+            sign_clause = f"{RIKISREIKNINGUR_AMOUNT} > 0"
+            where += f" AND {sign_clause}" if where else f"WHERE {sign_clause}"
+            chart_where += f" AND {sign_clause}" if chart_where else f"WHERE {sign_clause}"
+        elif sign == "neg":
+            sign_clause = f"{RIKISREIKNINGUR_AMOUNT} < 0"
+            where += f" AND {sign_clause}" if where else f"WHERE {sign_clause}"
+            chart_where += f" AND {sign_clause}" if chart_where else f"WHERE {sign_clause}"
+
+        partial_years = {
+            int(r[0]) for r in con.execute(
+                "SELECT DISTINCT year FROM data WHERE is_partial_year = TRUE AND year IS NOT NULL"
+            ).fetchall()
+        }
+        years_raw = [r[0] for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+        years = [f"{y}*" if int(y) in partial_years else y for y in years_raw]
+
+        tegund_opts = [r[0] for r in con.execute(
+            'SELECT DISTINCT "TegundHeiti" FROM data WHERE "TegundHeiti" IS NOT NULL ORDER BY "TegundHeiti"'
+        ).fetchall()]
+        buyer_opts = [r[0] for r in con.execute(
+            'SELECT DISTINCT "RaduneytiHeiti" FROM data WHERE "RaduneytiHeiti" IS NOT NULL ORDER BY "RaduneytiHeiti"'
+        ).fetchall()]
+        samtala1_opts = [r[0] for r in con.execute(
+            'SELECT DISTINCT "StofnunHeiti" FROM data WHERE "StofnunHeiti" IS NOT NULL ORDER BY "StofnunHeiti"'
+        ).fetchall()]
+
+        yearly = con.execute(
+            f"SELECT year, SUM({RIKISREIKNINGUR_AMOUNT}) FROM data {chart_where} GROUP BY year ORDER BY year",
+            chart_params,
+        ).fetchall()
+        yearly_labels = [f"{r[0]}*" if int(r[0]) in partial_years else str(r[0]) for r in yearly]
+
+        type_breakdown = con.execute(
+            f'SELECT "TegundHeiti", SUM({RIKISREIKNINGUR_AMOUNT}) AS s, COUNT(*) AS n '
+            f'FROM data {where} GROUP BY "TegundHeiti" ORDER BY s DESC LIMIT 30',
+            params,
+        ).fetchall()
+        buyer_breakdown = con.execute(
+            f'SELECT "RaduneytiHeiti", SUM({RIKISREIKNINGUR_AMOUNT}) AS s, COUNT(*) AS n '
+            f'FROM data {where} GROUP BY "RaduneytiHeiti" ORDER BY s DESC LIMIT 30',
+            params,
+        ).fetchall()
+        institution_breakdown = con.execute(
+            f'SELECT "StofnunHeiti", SUM({RIKISREIKNINGUR_AMOUNT}) AS s, COUNT(*) AS n '
+            f'FROM data {where} GROUP BY "StofnunHeiti" ORDER BY s DESC LIMIT 30',
+            params,
+        ).fetchall()
+
+        tot = con.execute(
+            f"SELECT COUNT(*) AS n, SUM({RIKISREIKNINGUR_AMOUNT}) AS s, "
+            f"SUM(CASE WHEN {RIKISREIKNINGUR_AMOUNT} > 0 THEN {RIKISREIKNINGUR_AMOUNT} END) AS pos, "
+            f"SUM(CASE WHEN {RIKISREIKNINGUR_AMOUNT} < 0 THEN {RIKISREIKNINGUR_AMOUNT} END) AS neg "
+            f"FROM data {where}",
+            params,
+        ).fetchone()
+
+        rows = con.execute(
+            f'SELECT year, "Timabil", "RaduneytiHeiti", "StofnunHeiti", "FjarlagavidfangHeiti", '
+            f'"MalaflokkurNumerOgHeiti", "TegundHeiti", "TegundL2Heiti", "TegundL3Heiti", {RIKISREIKNINGUR_AMOUNT} AS amount '
+            f'FROM data {where} ORDER BY year DESC, "Timabil" DESC LIMIT {limit} OFFSET {offset}',
+            params,
+        ).fetchall()
+        preview_rows = [
+            {"year": r[0], "Timabil": r[1], "RaduneytiHeiti": r[2], "StofnunHeiti": r[3],
+             "FjarlagavidfangHeiti": r[4], "MalaflokkurNumerOgHeiti": r[5], "TegundHeiti": r[6],
+             "TegundL2Heiti": r[7], "TegundL3Heiti": r[8], "amount_raw": r[9], "amount": fmt(r[9]),
+             "amount_fmt": fmt(r[9]), "_source": "rikisreikningur"}
+            for r in rows
+        ]
+
+        total_count = int(tot[0]) if tot and tot[0] is not None else 0
+        total_pages = max(1, math.ceil(total_count / limit))
+        active_filters = []
+        if year != "all":
+            active_filters.append({"label": "Ár", "value": str(year), "param": "year"})
+        if tegund != "all":
+            active_filters.append({"label": "Tegund", "value": tegund, "param": "tegund"})
+        if buyer != "all":
+            active_filters.append({"label": "Ráðuneyti", "value": buyer, "param": "buyer"})
+        if samtala1 != "all":
+            active_filters.append({"label": "Stofnun", "value": samtala1, "param": "samtala1"})
+        if sign != "all":
+            sign_label = "Jákvæðar" if sign == "pos" else "Neikvæðar"
+            active_filters.append({"label": sign_label, "value": "", "param": "sign"})
+
+        return render_template(
+            "explorer.html",
+            source="rikisreikningur",
+            data_loaded=True,
+            year=year, tegund=tegund, buyer=buyer, samtala1=samtala1, seller="all", sign=sign,
+            years=years,
+            tegund_opts=tegund_opts,
+            buyer_opts=buyer_opts,
+            samtala1_opts=samtala1_opts,
+            tegund_label="Tegund",
+            buyer_label="Ráðuneyti",
+            samtala1_label="Stofnun",
+            yearly_labels=yearly_labels,
+            yearly_values=[float(r[1]) if r[1] else 0 for r in yearly],
+            breakdown_sections=[
+                {"title": "Sundurliðun eftir tegund (topp 30)", "label": "Tegund", "rows": type_breakdown, "filter_param": "tegund"},
+                {"title": "Sundurliðun eftir ráðuneyti (topp 30)", "label": "Ráðuneyti", "rows": buyer_breakdown, "filter_param": "buyer"},
+                {"title": "Sundurliðun eftir stofnun (topp 30)", "label": "Stofnun", "rows": institution_breakdown, "filter_param": "samtala1"},
+            ],
+            totals={"count": tot[0], "sum": tot[1], "pos": tot[2], "neg": tot[3]} if tot else {},
+            preview_rows=preview_rows,
+            preview_cols=["year", "Timabil", "RaduneytiHeiti", "StofnunHeiti", "TegundHeiti", "amount"],
+            page=page, limit=limit, total_pages=total_pages,
+            active_filters=active_filters,
+            dn=rikisreikningur_dn,
+        )
+
+    @app.route("/rikisreikningur/download")
+    def rikisreikningur_explorer_download():
+        year = request.args.get("year", "all").rstrip("*")
+        tegund = request.args.get("tegund", "all")
+        buyer = request.args.get("buyer", "all")
+        samtala1 = request.args.get("samtala1", "all")
+        sign = request.args.get("sign", "all")
+
+        con = open_con(RIKISREIKNINGUR_DATA)
+        if con is None:
+            return "Data not found", 404
+
+        where, params = build_where([
+            ("year", year if year != "all" else None),
+            ("TegundHeiti", tegund if tegund != "all" else None),
+            ("RaduneytiHeiti", buyer if buyer != "all" else None),
+            ("StofnunHeiti", samtala1 if samtala1 != "all" else None),
+        ])
+
+        if sign == "pos":
+            where += f" AND {RIKISREIKNINGUR_AMOUNT} > 0" if where else f"WHERE {RIKISREIKNINGUR_AMOUNT} > 0"
+        elif sign == "neg":
+            where += f" AND {RIKISREIKNINGUR_AMOUNT} < 0" if where else f"WHERE {RIKISREIKNINGUR_AMOUNT} < 0"
+
+        rows = con.execute(
+            f"SELECT * FROM data {where} ORDER BY year DESC, \"Timabil\" DESC LIMIT 100000",
+            params,
+        ).fetchall()
+        if not rows:
+            return "No records found", 404
+
+        columns = [desc[0] for desc in con.description]
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(row)
+
+        output.seek(0)
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=rikisreikningur_records.csv"}
+        )
+
+    @app.route("/rikisreikningur/comparison")
+    def rikisreikningur_comparison():
+        con_rikis = open_con(RIKISREIKNINGUR_DATA)
+        con_rikid = open_rikid_con(RIKID_DATA)
+        if con_rikis is None or con_rikid is None:
+            missing = []
+            if con_rikis is None:
+                missing.append(str(RIKISREIKNINGUR_DATA))
+            if con_rikid is None:
+                missing.append(str(RIKID_DATA))
+            return render_template(
+                "comparison_rikisreikningur.html",
+                source="rikisreikningur",
+                page_id="comparison",
+                data_loaded=False,
+                error=f"Gögn finnast ekki: {', '.join(missing)}",
+            )
+
+        rikis_partial_years = {
+            int(r[0]) for r in con_rikis.execute(
+                "SELECT DISTINCT year FROM data WHERE is_partial_year = TRUE AND year IS NOT NULL"
+            ).fetchall()
+        }
+        rikis_years = {int(r[0]) for r in con_rikis.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL"
+        ).fetchall()}
+        rikid_years = {int(r[0]) for r in con_rikid.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL AND (is_correction = FALSE OR is_correction IS NULL)"
+        ).fetchall()}
+        common_years = sorted(rikis_years & rikid_years)
+        if not common_years:
+            return render_template(
+                "comparison_rikisreikningur.html",
+                source="rikisreikningur",
+                page_id="comparison",
+                data_loaded=False,
+                error="Engin sameiginleg ár fundust milli Ríkisins og ríkisreiknings.",
+            )
+
+        year_param = request.args.get("year", "all").rstrip("*")
+        year = year_param if year_param == "all" else str(int(year_param))
+
+        years = [f"{y}*" if y in rikis_partial_years else str(y) for y in sorted(common_years, reverse=True)]
+
+        rikis_yearly = con_rikis.execute(
+            f"""
+            WITH base AS (
+                SELECT
+                    year,
+                    amount,
+                    {RIKISREIKNINGUR_COMPARISON_BUCKET_SQL} AS bucket
+                FROM data
+                WHERE year IN ({",".join(str(y) for y in common_years)})
+            )
+            SELECT
+                year,
+                SUM(amount) AS rikis_total,
+                SUM(CASE WHEN bucket IN ({",".join(repr(b) for b in sorted(COMPARABLE_BUCKETS))}) THEN amount END) AS comparable_total
+            FROM base
+            GROUP BY year
+            ORDER BY year
+            """
+        ).fetchall()
+        rikis_yearly_map = {int(r[0]): (float(r[1] or 0), float(r[2] or 0)) for r in rikis_yearly}
+
+        rikid_yearly = con_rikid.execute(
+            f"""
+            SELECT year, SUM({RIKID_AMOUNT}) AS rikid_total
+            FROM data
+            WHERE year IN ({",".join(str(y) for y in common_years)})
+              AND (is_correction = FALSE OR is_correction IS NULL)
+            GROUP BY year
+            ORDER BY year
+            """
+        ).fetchall()
+        rikid_yearly_map = {int(r[0]): float(r[1] or 0) for r in rikid_yearly}
+
+        chart_years = common_years if year == "all" else [int(year)]
+        chart_labels = [f"{y}*" if y in rikis_partial_years else str(y) for y in chart_years]
+        chart_rikis_total = [rikis_yearly_map.get(y, (0.0, 0.0))[0] for y in chart_years]
+        chart_rikis_comparable = [rikis_yearly_map.get(y, (0.0, 0.0))[1] for y in chart_years]
+        chart_rikid_total = [rikid_yearly_map.get(y, 0.0) for y in chart_years]
+        chart_scope_gap = [chart_rikis_total[i] - chart_rikis_comparable[i] for i in range(len(chart_years))]
+        chart_timing_gap = [chart_rikis_comparable[i] - chart_rikid_total[i] for i in range(len(chart_years))]
+        chart_residual = [chart_rikis_total[i] - chart_rikid_total[i] for i in range(len(chart_years))]
+
+        selected_year = None if year == "all" else int(year)
+        selected_rikis_total = sum(chart_rikis_total)
+        selected_rikis_comparable = sum(chart_rikis_comparable)
+        selected_rikid_total = sum(chart_rikid_total)
+        selected_scope_gap = selected_rikis_total - selected_rikis_comparable
+        selected_timing_gap = selected_rikis_comparable - selected_rikid_total
+        selected_residual = selected_rikis_total - selected_rikid_total
+
+        year_filter_rikis = f"WHERE year = {selected_year}" if selected_year is not None else ""
+        year_filter_rikid = f"WHERE year = {selected_year} AND (is_correction = FALSE OR is_correction IS NULL)" if selected_year is not None else "WHERE (is_correction = FALSE OR is_correction IS NULL)"
+
+        rikis_bucket_rows = con_rikis.execute(
+            f"""
+            WITH base AS (
+                SELECT
+                    {RIKISREIKNINGUR_COMPARISON_BUCKET_SQL} AS bucket,
+                    amount
+                FROM data
+                {year_filter_rikis}
+            )
+            SELECT bucket, SUM(amount) AS total
+            FROM base
+            GROUP BY bucket
+            """
+        ).fetchall()
+        rikid_bucket_rows = con_rikid.execute(
+            f"""
+            WITH base AS (
+                SELECT
+                    {RIKID_COMPARISON_BUCKET_SQL} AS bucket,
+                    {RIKID_AMOUNT} AS amount
+                FROM data
+                {year_filter_rikid}
+            )
+            SELECT bucket, SUM(amount) AS total
+            FROM base
+            GROUP BY bucket
+            """
+        ).fetchall()
+
+        rikis_bucket_map = {str(r[0]): float(r[1] or 0) for r in rikis_bucket_rows}
+        rikid_bucket_map = {str(r[0]): float(r[1] or 0) for r in rikid_bucket_rows}
+        bucket_order = [
+            "Húsnæði og leiga",
+            "Þjónusta og ráðgjöf",
+            "Framkvæmdir og viðhald",
+            "Vörur, lyf og rekstrarinnkaup",
+            "Tæki, hugbúnaður og eignir",
+            "Tilfærslur og framlög",
+            "Laun og launatengd gjöld",
+            "Fjármagnsliðir, skattar og uppgjör",
+            "Tilfærslur, skattar og uppgjör",
+            "Annað",
+        ]
+        bucket_rows = []
+        for bucket in bucket_order:
+            rikis_val = rikis_bucket_map.get(bucket, 0.0)
+            rikid_val = rikid_bucket_map.get(bucket, 0.0)
+            if rikis_val == 0.0 and rikid_val == 0.0:
+                continue
+            comparable = bucket in COMPARABLE_BUCKETS
+            bucket_rows.append({
+                "bucket": bucket,
+                "rikis_total_raw": rikis_val,
+                "rikis_total": fmt(rikis_val),
+                "rikid_total_raw": rikid_val,
+                "rikid_total": fmt(rikid_val),
+                "difference_raw": rikis_val - rikid_val,
+                "difference": fmt(rikis_val - rikid_val),
+                "comparable": comparable,
+                "scope_label": "Ætti að vera samanburðarhæft" if comparable else "Bara í ríkisreikningi / óbeinn samanburður",
+            })
+
+        active_filters = []
+        if year != "all":
+            active_filters.append({"label": "Ár", "value": f"{year}*" if int(year) in rikis_partial_years else year, "param": "year"})
+
+        caveats = [
+            "Ríkið er greiðslugögn eftir greiðsludegi; ríkisreikningur er bókhalds- og uppgjörsgögn eftir tímabili.",
+            "Samanburðurinn hér notar grófa flokkun á tegundum. Hann er gagnlegur til að finna stærstu skýringar, ekki sem full endurskoðunarjöfnun.",
+            "Laun, tilfærslur, skattar, vextir og uppgjörsliðir eiga almennt ekki að birtast að fullu í Ríkinu.",
+        ]
+        if any(y in rikis_partial_years for y in chart_years):
+            caveats.append("Merkt ár með * er ófullkomið í ríkisreikningi.")
+        if min(common_years) > 2017:
+            caveats.append(f"Sameiginleg staðbundin gögn byrja á {min(common_years)}.")
+
+        return render_template(
+            "comparison_rikisreikningur.html",
+            source="rikisreikningur",
+            page_id="comparison",
+            data_loaded=True,
+            year=year,
+            years=years,
+            active_filters=active_filters,
+            selected_rikis_total=fmt(selected_rikis_total),
+            selected_rikis_total_raw=selected_rikis_total,
+            selected_rikis_comparable=fmt(selected_rikis_comparable),
+            selected_rikis_comparable_raw=selected_rikis_comparable,
+            selected_rikid_total=fmt(selected_rikid_total),
+            selected_rikid_total_raw=selected_rikid_total,
+            selected_scope_gap=fmt(selected_scope_gap),
+            selected_scope_gap_raw=selected_scope_gap,
+            selected_timing_gap=fmt(selected_timing_gap),
+            selected_timing_gap_raw=selected_timing_gap,
+            selected_residual=fmt(selected_residual),
+            selected_residual_raw=selected_residual,
+            chart_labels=chart_labels,
+            chart_rikis_total=chart_rikis_total,
+            chart_rikis_comparable=chart_rikis_comparable,
+            chart_rikid_total=chart_rikid_total,
+            chart_scope_gap=chart_scope_gap,
+            chart_timing_gap=chart_timing_gap,
+            chart_residual=chart_residual,
+            bucket_rows=bucket_rows,
+            caveats=caveats,
+        )
+
+    @app.route("/rikisreikningur/institutions")
+    def rikisreikningur_institutions():
+        year = request.args.get("year", "").rstrip("*")
+        match = request.args.get("match", "all")
+        con_rikis = open_con(RIKISREIKNINGUR_DATA)
+        con_rikid = open_rikid_con(RIKID_DATA)
+        if con_rikis is None or con_rikid is None:
+            return render_template(
+                "rikid_institutions.html",
+                source="rikisreikningur",
+                page_id="institutions",
+                data_loaded=False,
+                error="Vantar rikisreikningur eða rikid gögn fyrir stofnanasamanburð.",
+            )
+
+        valid_matches = {"all", "exact", "alias", "predecessor", "missing"}
+        if match not in valid_matches:
+            match = "all"
+
+        partial_years = {
+            int(r[0]) for r in con_rikis.execute(
+                "SELECT DISTINCT year FROM data WHERE is_partial_year = TRUE AND year IS NOT NULL"
+            ).fetchall()
+        }
+        years_raw = [int(r[0]) for r in con_rikis.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+        if not years_raw:
+            return render_template(
+                "rikid_institutions.html",
+                source="rikisreikningur",
+                page_id="institutions",
+                data_loaded=False,
+                error="Engin rikisreikningur-gögn fundust.",
+            )
+        default_year = next((y for y in years_raw if y not in partial_years), years_raw[0])
+        if not year or not year.isdigit():
+            year = str(default_year)
+        selected_year = int(year)
+        years = [f"{y}*" if y in partial_years else str(y) for y in years_raw]
+
+        rikis_rows = con_rikis.execute(
+            """
+            SELECT DISTINCT
+                CASE
+                    WHEN "StofnunHeiti" = "FjarlagavidfangHeiti" THEN "RaduneytiHeiti"
+                    ELSE "StofnunHeiti"
+                END AS canonical_institution,
+                "RaduneytiHeiti"
+            FROM data
+            WHERE year = ? AND "StofnunHeiti" IS NOT NULL
+            ORDER BY canonical_institution
+            """,
+            [selected_year],
+        ).fetchall()
+        rikid_buyers = [r[0] for r in con_rikid.execute(
+            """
+            SELECT DISTINCT "Kaupandi"
+            FROM data
+            WHERE year = ? AND "Kaupandi" IS NOT NULL AND (is_correction = FALSE OR is_correction IS NULL)
+            ORDER BY "Kaupandi"
+            """,
+            [selected_year],
+        ).fetchall()]
+        rikid_buyer_set = set(rikid_buyers)
+        rikid_by_norm: dict[str, list[str]] = {}
+        for buyer in rikid_buyers:
+            rikid_by_norm.setdefault(normalize_name(buyer), []).append(buyer)
+
+        website_rows: list[dict[str, str]] = []
+        fetched_at = ""
+        if RIKID_INSTITUTIONS_RECONCILIATION.exists():
+            with RIKID_INSTITUTIONS_RECONCILIATION.open(encoding="utf-8", newline="") as f:
+                website_rows = list(csv.DictReader(f))
+            fetched_at = website_rows[0]["fetched_at_utc"] if website_rows else ""
+        website_by_exact = {row["institution"]: row for row in website_rows}
+        website_by_norm: dict[str, dict[str, str]] = {}
+        for row in website_rows:
+            website_by_norm.setdefault(normalize_name(row["institution"]), row)
+
+        rows = []
+        counts: dict[str, int] = {}
+        for institution, ministry in rikis_rows:
+            if institution in rikid_buyer_set:
+                match_type = "exact"
+                rikid_match = institution
+                note = ""
+            elif institution in RIKIS_TO_RIKID_ALIASES:
+                rikid_match, match_type = RIKIS_TO_RIKID_ALIASES[institution]
+                note = "Handvirk vörpun"
+            elif normalize_name(institution) in rikid_by_norm:
+                rikid_match = rikid_by_norm[normalize_name(institution)][0]
+                match_type = "alias"
+                note = "Sama heiti eftir einföldun"
+            else:
+                rikid_match = ""
+                match_type = "missing"
+                note = ""
+
+            website_match = website_by_exact.get(institution)
+            if website_match:
+                website_name = website_match["institution"]
+                website_status = "exact"
+            elif normalize_name(institution) in website_by_norm:
+                website_name = website_by_norm[normalize_name(institution)]["institution"]
+                website_status = "alias"
+            else:
+                website_name = ""
+                website_status = "missing"
+
+            counts[match_type] = counts.get(match_type, 0) + 1
+            rows.append(
+                {
+                    "institution": institution,
+                    "ministry": ministry,
+                    "match_type": match_type,
+                    "rikid_match": rikid_match,
+                    "note": note,
+                    "website_name": website_name,
+                    "website_status": website_status,
+                }
+            )
+
+        filtered_rows = [row for row in rows if match == "all" or row["match_type"] == match]
+        sort_order = {"missing": 1, "predecessor": 2, "alias": 3, "exact": 4}
+        filtered_rows.sort(key=lambda row: (sort_order.get(row["match_type"], 9), row["institution"]))
+
+        return render_template(
+            "rikid_institutions.html",
+            source="rikisreikningur",
+            page_id="institutions",
+            data_loaded=True,
+            year=year,
+            years=years,
+            match=match,
+            counts=counts,
+            fetched_at=fetched_at,
+            rows=filtered_rows,
+        )
+
+    @app.route("/rikisreikningur/wages")
+    def rikisreikningur_wages():
+        con = open_con(RIKISREIKNINGUR_DATA)
+        if con is None:
+            return render_template(
+                "rikisreikningur_wages.html",
+                source="rikisreikningur",
+                page_id="wages",
+                data_loaded=False,
+                error=f"Gögn finnast ekki: {RIKISREIKNINGUR_DATA}",
+            )
+
+        partial_years = {
+            int(r[0]) for r in con.execute(
+                "SELECT DISTINCT year FROM data WHERE is_partial_year = TRUE AND year IS NOT NULL"
+            ).fetchall()
+        }
+        years_raw = [int(r[0]) for r in con.execute(
+            "SELECT DISTINCT year FROM data WHERE year IS NOT NULL ORDER BY year DESC"
+        ).fetchall()]
+        if not years_raw:
+            return render_template(
+                "rikisreikningur_wages.html",
+                source="rikisreikningur",
+                page_id="wages",
+                data_loaded=False,
+                error="Engin rikisreikningur-gögn fundust.",
+            )
+
+        year_param = request.args.get("year", "all").rstrip("*")
+        year = year_param if year_param == "all" else str(int(year_param))
+        years = [f"{y}*" if y in partial_years else str(y) for y in years_raw]
+
+        yearly_rows = con.execute(
+            f"""
+            WITH wages AS (
+                SELECT
+                    year,
+                    amount,
+                    {RIKISREIKNINGUR_WAGE_BUCKET_SQL} AS bucket
+                FROM data
+            ),
+            yearly AS (
+                SELECT
+                    year,
+                    SUM(amount) AS wage_total,
+                    SUM(CASE WHEN bucket = 'Kjarna-laun' THEN amount ELSE 0 END) AS core_pay,
+                    SUM(CASE WHEN bucket = 'Yfirvinna og álag' THEN amount ELSE 0 END) AS overtime,
+                    SUM(CASE WHEN bucket = 'Orlofsskuldbinding' THEN amount ELSE 0 END) AS leave_cost,
+                    SUM(CASE WHEN bucket = 'Launatengd gjöld' THEN amount ELSE 0 END) AS payroll_taxes,
+                    SUM(CASE WHEN bucket = 'Lífeyrisskuldbindingar' THEN amount ELSE 0 END) AS pension_change,
+                    SUM(CASE WHEN bucket = 'Starfsmannakostnaður' THEN amount ELSE 0 END) AS staff_cost,
+                    SUM(CASE WHEN bucket = 'Mótfærslur og leiðréttingar' THEN amount ELSE 0 END) AS offsets,
+                    SUM(CASE WHEN bucket = 'Annað launatengt' THEN amount ELSE 0 END) AS other_wage
+                FROM wages
+                WHERE bucket IS NOT NULL
+                GROUP BY year
+            )
+            SELECT
+                year,
+                wage_total,
+                core_pay,
+                overtime,
+                leave_cost,
+                payroll_taxes,
+                pension_change,
+                staff_cost,
+                offsets,
+                other_wage
+            FROM yearly
+            ORDER BY year
+            """
+        ).fetchall()
+        yearly_map = {
+            int(r[0]): {
+                "total": float(r[1] or 0),
+                "core_pay": float(r[2] or 0),
+                "overtime": float(r[3] or 0),
+                "leave_cost": float(r[4] or 0),
+                "payroll_taxes": float(r[5] or 0),
+                "pension_change": float(r[6] or 0),
+                "staff_cost": float(r[7] or 0),
+                "offsets": float(r[8] or 0),
+                "other_wage": float(r[9] or 0),
+            }
+            for r in yearly_rows
+        }
+
+        filtered_years = sorted(yearly_map)
+        if year != "all":
+            selected_year = int(year)
+            filtered_years = [y for y in filtered_years if y == selected_year]
+        else:
+            selected_year = None
+
+        focus_year = selected_year
+        if focus_year is None:
+            focus_year = next((y for y in sorted(yearly_map, reverse=True) if y not in partial_years), max(yearly_map))
+        focus_prev = max((y for y in yearly_map if y < focus_year), default=None)
+        focus = yearly_map[focus_year]
+        prev = yearly_map.get(focus_prev)
+
+        def pct_change(cur: float, old: float | None) -> float | None:
+            if old in (None, 0):
+                return None
+            return ((cur / old) - 1.0) * 100.0
+
+        year_rows = []
+        for y in sorted(filtered_years, reverse=True):
+            row = yearly_map[y]
+            prev_row = yearly_map.get(y - 1)
+            year_rows.append(
+                {
+                    "year": f"{y}*" if y in partial_years else str(y),
+                    "total_raw": row["total"],
+                    "total": fmt(row["total"]),
+                    "total_pct": pct_change(row["total"], prev_row["total"] if prev_row else None),
+                    "core_pay": fmt(row["core_pay"]),
+                    "core_pay_raw": row["core_pay"],
+                    "core_pct": pct_change(row["core_pay"], prev_row["core_pay"] if prev_row else None),
+                    "overtime": fmt(row["overtime"]),
+                    "leave_cost": fmt(row["leave_cost"]),
+                    "payroll_taxes": fmt(row["payroll_taxes"]),
+                    "pension_change": fmt(row["pension_change"]),
+                    "staff_cost": fmt(row["staff_cost"]),
+                    "offsets": fmt(row["offsets"]),
+                }
+            )
+
+        bucket_rows_raw = con.execute(
+            f"""
+            WITH wages AS (
+                SELECT
+                    "TegundHeiti" AS category,
+                    amount,
+                    {RIKISREIKNINGUR_WAGE_BUCKET_SQL} AS bucket
+                FROM data
+                {"WHERE year = ?" if selected_year is not None else ""}
+            )
+            SELECT
+                bucket,
+                category,
+                SUM(amount) AS total
+            FROM wages
+            WHERE bucket IS NOT NULL
+            GROUP BY bucket, category
+            ORDER BY bucket, total DESC
+            """,
+            [selected_year] if selected_year is not None else [],
+        ).fetchall()
+
+        bucket_groups: dict[str, list[dict[str, object]]] = {bucket: [] for bucket in RIKISREIKNINGUR_WAGE_BUCKET_ORDER}
+        bucket_totals = {bucket: 0.0 for bucket in RIKISREIKNINGUR_WAGE_BUCKET_ORDER}
+        for bucket, category, total in bucket_rows_raw:
+            bucket = str(bucket)
+            total_value = float(total or 0)
+            if bucket not in bucket_groups:
+                bucket_groups[bucket] = []
+                bucket_totals[bucket] = 0.0
+            bucket_totals[bucket] += total_value
+            if len(bucket_groups[bucket]) < 8:
+                bucket_groups[bucket].append({
+                    "category": category,
+                    "amount": fmt(total_value),
+                    "amount_raw": total_value,
+                })
+
+        bucket_rows = []
+        for bucket in RIKISREIKNINGUR_WAGE_BUCKET_ORDER:
+            total_value = bucket_totals.get(bucket, 0.0)
+            if total_value == 0 and not bucket_groups.get(bucket):
+                continue
+            bucket_rows.append(
+                {
+                    "bucket": bucket,
+                    "total": fmt(total_value),
+                    "total_raw": total_value,
+                    "top_categories": bucket_groups.get(bucket, []),
+                }
+            )
+
+        active_filters = []
+        if year != "all":
+            active_filters.append({"label": "Ár", "value": f"{selected_year}*" if selected_year in partial_years else str(selected_year)})
+
+        caveats = [
+            "Þetta eru bókhaldsfærslur, ekki launavísitala eða meðaltal launa á starfsmann.",
+            "Launatölur hér hreyfast líka vegna mönnunar, yfirvinnu, vakta, orlofs, lífeyrisskuldbindinga og leiðréttinga.",
+            "Flokkunin hér byggir fyrst og fremst á launaflokkum ríkisreikningsins (`TegundL3Heiti`) frekar en einstökum undirtegundum.",
+            "Árið 2025 er aðeins fyrstu sex mánuðirnir í ríkisreikningsgögnunum og er því merkt með *.",
+        ]
+
+        chart_years = sorted(filtered_years)
+        chart_labels = [f"{y}*" if y in partial_years else str(y) for y in chart_years]
+
+        return render_template(
+            "rikisreikningur_wages.html",
+            source="rikisreikningur",
+            page_id="wages",
+            data_loaded=True,
+            year=year,
+            years=years,
+            active_filters=active_filters,
+            focus_year=f"{focus_year}*" if focus_year in partial_years else str(focus_year),
+            focus_total=fmt(focus["total"]),
+            focus_total_raw=focus["total"],
+            focus_total_pct=pct_change(focus["total"], prev["total"] if prev else None),
+            focus_core_pay=fmt(focus["core_pay"]),
+            focus_core_pay_raw=focus["core_pay"],
+            focus_core_pct=pct_change(focus["core_pay"], prev["core_pay"] if prev else None),
+            focus_overtime=fmt(focus["overtime"]),
+            focus_overtime_raw=focus["overtime"],
+            focus_leave_cost=fmt(focus["leave_cost"]),
+            focus_leave_cost_raw=focus["leave_cost"],
+            focus_payroll_taxes=fmt(focus["payroll_taxes"]),
+            focus_payroll_taxes_raw=focus["payroll_taxes"],
+            focus_pension_change=fmt(focus["pension_change"]),
+            focus_pension_change_raw=focus["pension_change"],
+            focus_staff_cost=fmt(focus["staff_cost"]),
+            focus_staff_cost_raw=focus["staff_cost"],
+            focus_offsets=fmt(focus["offsets"]),
+            focus_offsets_raw=focus["offsets"],
+            chart_labels=chart_labels,
+            chart_core_pay=[yearly_map[y]["core_pay"] for y in chart_years],
+            chart_overtime=[yearly_map[y]["overtime"] for y in chart_years],
+            chart_leave_cost=[yearly_map[y]["leave_cost"] for y in chart_years],
+            chart_payroll_taxes=[yearly_map[y]["payroll_taxes"] for y in chart_years],
+            chart_pension_change=[yearly_map[y]["pension_change"] for y in chart_years],
+            chart_staff_cost=[yearly_map[y]["staff_cost"] for y in chart_years],
+            chart_offsets=[yearly_map[y]["offsets"] for y in chart_years],
+            chart_other_wage=[yearly_map[y]["other_wage"] for y in chart_years],
+            chart_total=[yearly_map[y]["total"] for y in chart_years],
+            year_rows=year_rows,
+            bucket_rows=bucket_rows,
+            caveats=caveats,
         )
 
     # =========================================================================

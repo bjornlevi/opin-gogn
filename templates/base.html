@@ -22,6 +22,7 @@
       /* Source accent colours */
       --accent-rikid:     #2563eb;
       --accent-reykjavik: #0d9488;
+      --accent-rikisreikningur: #b45309;
       --accent:           #2563eb;   /* overridden by source class */
       --accent-light:     #eff6ff;
       --accent-text:      #1d4ed8;
@@ -30,6 +31,11 @@
       --accent:       #0d9488;
       --accent-light: #f0fdfa;
       --accent-text:  #0f766e;
+    }
+    body.source-rikisreikningur {
+      --accent:       #b45309;
+      --accent-light: #fff7ed;
+      --accent-text:  #9a3412;
     }
 
     /* ------------------------------------------------------------------ */
@@ -92,6 +98,7 @@
     .source-tab:hover { background: var(--bg); color: var(--ink); text-decoration: none; }
     .source-tab.active-rikid     { background: #eff6ff; color: var(--accent-rikid);     font-weight: 600; }
     .source-tab.active-reykjavik { background: #f0fdfa; color: var(--accent-reykjavik); font-weight: 600; }
+    .source-tab.active-rikisreikningur { background: #fff7ed; color: var(--accent-rikisreikningur); font-weight: 600; }
     .source-dot {
       width: 8px; height: 8px;
       border-radius: 50%;
@@ -99,6 +106,7 @@
     }
     .dot-rikid     { background: var(--accent-rikid); }
     .dot-reykjavik { background: var(--accent-reykjavik); }
+    .dot-rikisreikningur { background: var(--accent-rikisreikningur); }
 
     /* ------------------------------------------------------------------ */
     /* Page sub-navigation                                                 */
@@ -162,6 +170,7 @@
     }
     .badge-rikid     { background: #eff6ff; color: var(--accent-rikid);     }
     .badge-reykjavik { background: #f0fdfa; color: var(--accent-reykjavik); }
+    .badge-rikisreikningur { background: #fff7ed; color: var(--accent-rikisreikningur); }
 
     .layout {
       display: grid;
@@ -394,7 +403,7 @@
     /* ------------------------------------------------------------------ */
     .home-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 20px;
       padding: 24px 28px 56px;
     }
@@ -479,6 +488,10 @@
        class="source-tab {% if source is defined and source == 'reykjavik' %}active-reykjavik{% endif %}">
       <span class="source-dot dot-reykjavik"></span>Reykjavík
     </a>
+    <a href="{{ url_for('rikisreikningur_explorer') }}"
+       class="source-tab {% if source is defined and source == 'rikisreikningur' %}active-rikisreikningur{% endif %}">
+      <span class="source-dot dot-rikisreikningur"></span>Ríkisreikningur
+    </a>
   </div>
 </header>
 
@@ -494,6 +507,11 @@
     <a href="{{ url_for('rikid_analysis') }}"  {% if page_id == 'analysis' %}class="active"{% endif %}>Greining</a>
     <a href="{{ url_for('rikid_anomalies') }}" {% if page_id == 'anomalies' %}class="active"{% endif %}>Frávik</a>
     <a href="{{ url_for('rikid_reports') }}"   {% if page_id == 'reports' %}class="active"{% endif %}>Skýrslur</a>
+  {% elif source == 'rikisreikningur' %}
+    <a href="{{ url_for('rikisreikningur_explorer') }}" {% if page_id == 'explorer' %}class="active"{% endif %}>Skoðun</a>
+    <a href="{{ url_for('rikisreikningur_wages') }}" {% if page_id == 'wages' %}class="active"{% endif %}>Laun</a>
+    <a href="{{ url_for('rikisreikningur_comparison') }}" {% if page_id == 'comparison' %}class="active"{% endif %}>Samanburður</a>
+    <a href="{{ url_for('rikisreikningur_institutions') }}" {% if page_id == 'institutions' %}class="active"{% endif %}>Stofnanir</a>
   {% else %}
     <a href="{{ url_for('rkv_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Skoðun</a>
     <a href="{{ url_for('rkv_types') }}"     {% if page_id == 'types' %}class="active"{% endif %}>Tegund útgjalda</a>
@@ -544,6 +562,7 @@
 <!-- Record detail modals -->
 {% include "_record_rkv.html" %}
 {% include "_record_rikid.html" %}
+{% include "_record_rikisreikningur.html" %}
 
 <!-- Modal JS -->
 <script>
@@ -563,6 +582,14 @@ function openRikidRecord(data) {
   });
   modal.showModal();
 }
+function openRikisreikningurRecord(data) {
+  const modal = document.getElementById('modal-rikisreikningur');
+  modal.querySelectorAll('[data-field]').forEach(el => {
+    const v = data[el.dataset.field];
+    el.textContent = (v !== null && v !== undefined && String(v).trim() !== '') ? v : '–';
+  });
+  modal.showModal();
+}
 
 // Event delegation: handle clickable record rows
 document.addEventListener('click', e => {
@@ -570,12 +597,11 @@ document.addEventListener('click', e => {
   if (row) {
     try {
       const data = JSON.parse(row.dataset.record);
-      console.log('Record clicked, _source:', data._source, 'data:', data);
       if (data._source === 'rkv') {
-        console.log('Opening RKV modal');
         openRkvRecord(data);
+      } else if (data._source === 'rikisreikningur') {
+        openRikisreikningurRecord(data);
       } else {
-        console.log('Opening Rikid modal');
         openRikidRecord(data);
       }
     } catch (err) {

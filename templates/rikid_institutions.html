@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% set page_id = "institutions" %}
+{% block title %}Stofnanir — Ríkisreikningur{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-rikisreikningur">Ríkisreikningur</div>
+  <h1>Stofnanir vs. Ríkið</h1>
+  <p>Viðmið er ársbundin stofnanasamstæðing úr ríkisreikningi. Ef `StofnunHeiti = FjarlagavidfangHeiti` er heitið fellt upp í `RaduneytiHeiti`.</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+<div class="layout">
+  <div class="sidebar">
+    <div class="panel">
+      <div class="section-title">Ár</div>
+      <div class="pill-grid" style="margin-bottom:14px">
+        {% for y in years %}
+          <a class="pill {% if year | string == (y | replace('*', '')) | string %}active{% endif %}" href="?year={{ y }}&match={{ match }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+
+      <div class="section-title">Samsvörun</div>
+      <div class="pill-grid">
+        <a class="pill {% if match == 'all' %}active{% endif %}" href="?year={{ year }}&match=all">Allt</a>
+        <a class="pill {% if match == 'missing' %}active{% endif %}" href="?year={{ year }}&match=missing">Vantar</a>
+        <a class="pill {% if match == 'predecessor' %}active{% endif %}" href="?year={{ year }}&match=predecessor">Forveri</a>
+        <a class="pill {% if match == 'alias' %}active{% endif %}" href="?year={{ year }}&match=alias">Samheiti</a>
+        <a class="pill {% if match == 'exact' %}active{% endif %}" href="?year={{ year }}&match=exact">Nákvæmt</a>
+      </div>
+      <div class="footer-link">Viðmið: ársbundin stofnanasamstæða í {{ year }}</div>
+      <div class="footer-link">Veflisti sótt: {{ fetched_at[:10] if fetched_at else "–" }}</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Vantar</div>
+        <div class="s-value neg">{{ counts.get('missing', 0) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Forveri / sameining</div>
+        <div class="s-value">{{ counts.get('predecessor', 0) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Samheiti</div>
+        <div class="s-value">{{ counts.get('alias', 0) }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Nákvæm samsvörun</div>
+        <div class="s-value">{{ counts.get('exact', 0) }}</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-title">Stofnanasamsvörun</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Viðmiðsheiti úr ríkisreikningi</th>
+              <th>Ráðuneyti</th>
+              <th>Samsvörun við Ríkið</th>
+              <th>Kaupandi í Ríkinu</th>
+              <th>Núverandi heiti á vef</th>
+              <th>Vefstaða</th>
+              <th>Athugasemd</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr>
+              <td>{{ row.institution }}</td>
+              <td>{{ row.ministry }}</td>
+              <td>{{ row.match_type }}</td>
+              <td>{{ row.rikid_match or "–" }}</td>
+              <td>{{ row.website_name or "–" }}</td>
+              <td>{{ row.website_status }}</td>
+              <td>{{ row.note or "–" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if not rows %}
+        <div class="empty">Engar raðir fyrir þessa síu.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
