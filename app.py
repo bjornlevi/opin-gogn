@@ -348,6 +348,87 @@ def get_wage_category(department: str) -> str | None:
             return cat
     return None
 
+
+# ---------------------------------------------------------------------------
+# Miðstöðvaskýrsla — hlutdeild málaflokks fatlaðs fólks í rekstri miðstöðvanna
+#
+# Ársuppgjörið hefur enga miðstöðvavídd (xeining* er tómt frá og með 2018), svo
+# umfang miðstöðvanna er endurgert út frá samtala0 innan velferðarsviðs. Hver
+# samtala0-gildi er flokkað í nákvæmlega einn af þremur flokkum hér að neðan;
+# allt sem ekki er talið upp lendir í "midlaegt".
+# ---------------------------------------------------------------------------
+
+MIDST_FATLAD = [
+    # Búsetuþjónusta fatlaðs fólks (eldri kóðar og G-/Þ-þyngdarflokkar frá 2023)
+    "Húsnæðisúrræði fyrir fatlaða", "Búsetukjarnar", "Búsetukjarnar - sameiginlegt",
+    "Sameiginlegt v. búsetuúrræða fatlaðra",
+    "G-I", "G-II", "G-III", "G-IV",
+    "Þ-I", "Þ-II", "Þ-III", "Þ-III A", "Þ-III B", "Þ-III C", "Þ-IV", "Þ-Börn",
+    # Önnur þjónusta í málaflokknum
+    "Dagþjónusta - Málefni fatlaðs fólks", "Skammtímadvöl", "Skammtímavistun",
+    "Frekari liðveisla", "Stoðþjónusta (Frekari liðveisla)",
+    "Stuðningsfjölskyldur - Fatlaðir", "Málefni fatlaðs fólks", "Túlkaþjónusta",
+]
+
+MIDST_ONNUR = [
+    # Barnavernd / börn og fjölskyldur
+    "Barnavernd Reykjavíkur", "Börn og fjölskyldur",
+    # Heimaþjónusta og heimastuðningur (heitin breytast 2023)
+    "Heimaþjónusta", "Heimaþjónusta - dagþjónusta",
+    "Heimaþjónusta - kvöld- og helgarþjónusta",
+    "Heimastuðningur", "Heimastuðningur - dagþjónusta",
+    "Heimastuðningur - kvöld og helgarþjónusta",
+    "Heimahjúkrun", "Endurhæfingarteymi", "Dagdeildir",
+    # Virkni, ráðgjöf og félagsstarf
+    "Fullorðnir (18-67) - Virkni og ráðgjöf", "Virkniverkefni", "Unglingasmiðjur",
+    "Keðjan", "Félagsmiðstöðvar", "Öldrunarmál",
+    "Stuðningsþjónusta", "Stuðningsfjölskyldur",
+    "Stuðningsfjölskyldur og stuðningsþjónusta",
+    # Húsnæði og búseta á vegum miðstöðva
+    "Þjónustuíbúðir", "Húsnæðisaðstoð", "Húsnæði fyrir heimilislausa",
+    "Áfangaheimili", "Þjónusta við flóttafólk og hælisleitendur",
+    # Rekstur miðstöðvanna sjálfra
+    "Rekstur miðstöðva", "Rekstur þjónustumiðstöðvar",
+    "Sameiginlegt vegna þjónustumiðstöðva", "Þjónusta v/velferðarmála",
+    "Rafræn þjónusta", "Framleiðslueldhús", "Þekkingarstöð",
+    "Önnur úrræði", "Önnur starfsemi",
+]
+
+# NPA tilheyrir málaflokknum en er umsýslað miðlægt — valkvætt í teljara.
+MIDST_NPA = "Notendastýrð persónuleg aðstoð (NPA)"
+
+# Heimahjúkrun er ríkisfjármögnuð — valkvætt úr nefnara.
+MIDST_RIKISFJARMOGNUD = "Heimahjúkrun"
+
+MIDST_MAELINGAR = {
+    "gjold": ("Rekstrargjöld (brúttó)",
+              "SUM(CASE WHEN tegund1 = 'Rekstrargjöld' THEN raun END)"),
+    # 2018 notar sameinaðan lið "Laun og launatengd gjöld"; frá 2019 er honum skipt.
+    "laun": ("Laun og launatengd gjöld",
+             "SUM(CASE WHEN tegund0 IN ('Laun', 'Launatengd gjöld', "
+             "'Laun og launatengd gjöld') THEN raun END)"),
+    "netto": ("Nettó (gjöld að frádregnum tekjum)", "SUM(raun)"),
+}
+
+# Launavísitala, ársmeðaltöl. Heimild: Hagstofa Íslands, LAU04200.
+LAUNAVISITALA = {
+    2014: 483.5, 2015: 518.2, 2016: 577.1, 2017: 616.6, 2018: 656.4,
+    2019: 688.5, 2020: 732.0, 2021: 792.7, 2022: 858.4, 2023: 942.4,
+    2024: 1004.6, 2025: 1084.0,
+}
+
+
+def midst_flokkur(samtala0: str, telja_npa: bool) -> str:
+    """Flokka samtala0-gildi í fatlad / midstod / midlaegt."""
+    if samtala0 in MIDST_FATLAD:
+        return "fatlad"
+    if samtala0 == MIDST_NPA:
+        return "fatlad" if telja_npa else "midlaegt"
+    if samtala0 in MIDST_ONNUR:
+        return "midstod"
+    return "midlaegt"
+
+
 # ===========================================================================
 # RIKISREIKNINGUR
 # ===========================================================================
@@ -2321,6 +2402,141 @@ def create_app() -> Flask:
             output.getvalue(),
             mimetype="text/csv",
             headers={"Content-Disposition": "attachment; filename=leikskoli_records.csv"}
+        )
+
+    @app.route("/reykjavik/reports/midstodvar")
+    def rkv_reports_midstodvar():
+        maeling = request.args.get("maeling", "gjold")
+        if maeling not in MIDST_MAELINGAR:
+            maeling = "gjold"
+        telja_npa = request.args.get("npa", "false").lower() == "true"
+        med_heimahjukrun = request.args.get("heimahjukrun", "true").lower() == "true"
+        raunvirdi = request.args.get("raunvirdi", "true").lower() == "true"
+
+        con = open_con(REYKJAVIK_DATA)
+        if con is None:
+            return render_template("report_midstodvar.html", source="reykjavik",
+                                   page_id="reports", data_loaded=False,
+                                   error=f"Gögn finnast ekki: {REYKJAVIK_DATA}")
+
+        maeling_label, amount_expr = MIDST_MAELINGAR[maeling]
+
+        rows = con.execute(
+            f"SELECT year, samtala0, {amount_expr} AS s "
+            "FROM data "
+            "WHERE samtala1 = 'Velferðarsvið' "
+            "  AND year IS NOT NULL "
+            "  AND (is_correction = FALSE OR is_correction IS NULL) "
+            "GROUP BY year, samtala0 "
+            "HAVING s IS NOT NULL AND s <> 0 "
+            "ORDER BY year, samtala0"
+        ).fetchall()
+
+        years = sorted({r[0] for r in rows})
+        base_year = int(request.args.get("grunnar", years[0] if years else 2019))
+        if base_year not in years:
+            base_year = years[0] if years else base_year
+
+        # Per-year group totals, and per-samtala0 series for the detail table.
+        totals = {y: {"fatlad": 0.0, "midstod": 0.0, "midlaegt": 0.0} for y in years}
+        detail: dict[str, dict] = {}
+        for year_, samtala0, amount in rows:
+            name = samtala0 or "–"
+            group = midst_flokkur(samtala0, telja_npa)
+            # Heimahjúkrun er ríkisfjármögnuð; má taka úr nefnara miðstöðvanna.
+            if group == "midstod" and samtala0 == MIDST_RIKISFJARMOGNUD \
+                    and not med_heimahjukrun:
+                group = "midlaegt"
+            totals[year_][group] += float(amount)
+            entry = detail.setdefault(name, {"name": name, "group": group, "by_year": {}})
+            entry["by_year"][year_] = entry["by_year"].get(year_, 0.0) + float(amount)
+
+        def real_index(series: dict, group: str) -> dict:
+            """Vísitala, 100 = grunnár. Verðleiðrétt með launavísitölu ef beðið er um."""
+            base = series.get(base_year, {}).get(group) or 0.0
+            out = {}
+            if not base:
+                return out
+            base_lv = LAUNAVISITALA.get(base_year)
+            for y in years:
+                value = series[y][group]
+                idx = value / base * 100
+                if raunvirdi and base_lv and LAUNAVISITALA.get(y):
+                    idx = idx / (LAUNAVISITALA[y] / base_lv)
+                out[y] = idx
+            return out
+
+        idx_fatlad = real_index(totals, "fatlad")
+        idx_midstod = real_index(totals, "midstod")
+
+        year_rows = []
+        for i, y in enumerate(years):
+            t = totals[y]
+            scope = t["fatlad"] + t["midstod"]
+            share = (t["fatlad"] / scope * 100) if scope else None
+            prev_share = None
+            if i > 0:
+                pt = totals[years[i - 1]]
+                pscope = pt["fatlad"] + pt["midstod"]
+                prev_share = (pt["fatlad"] / pscope * 100) if pscope else None
+            year_rows.append({
+                "year": y,
+                "fatlad": fmt(t["fatlad"]),
+                "midstod": fmt(t["midstod"]),
+                "midlaegt": fmt(t["midlaegt"]),
+                "scope": fmt(scope),
+                "share": f"{share:.1f}%" if share is not None else "–",
+                "share_chg": (f"{share - prev_share:+.1f}"
+                              if share is not None and prev_share is not None else "–"),
+                "share_dir": ("up" if share is not None and prev_share is not None
+                              and share >= prev_share else "down"),
+                "idx_fatlad": f"{idx_fatlad[y]:.1f}" if y in idx_fatlad else "–",
+                "idx_midstod": f"{idx_midstod[y]:.1f}" if y in idx_midstod else "–",
+                "lv": LAUNAVISITALA.get(y),
+            })
+
+        group_labels = {
+            "fatlad": "Málaflokkur fatlaðs fólks",
+            "midstod": "Önnur verkefni miðstöðva",
+            "midlaegt": "Miðlægt / ekki á miðstöðvum",
+        }
+        detail_rows = []
+        for entry in detail.values():
+            series = entry["by_year"]
+            total = sum(series.values())
+            first = next((series[y] for y in years if series.get(y)), None)
+            last = next((series[y] for y in reversed(years) if series.get(y)), None)
+            detail_rows.append({
+                "name": entry["name"],
+                "group": entry["group"],
+                "group_label": group_labels[entry["group"]],
+                "total": total,
+                "total_fmt": fmt(total),
+                "cells": [fmt(series[y]) if series.get(y) else "" for y in years],
+                "trend": (fmt_pct((last - first) / abs(first) * 100)
+                          if first and last else "–"),
+            })
+        detail_rows.sort(key=lambda r: (
+            {"fatlad": 0, "midstod": 1, "midlaegt": 2}[r["group"]], -abs(r["total"])
+        ))
+
+        return render_template(
+            "report_midstodvar.html",
+            source="reykjavik", page_id="reports", data_loaded=True,
+            years=years, year_rows=year_rows, detail_rows=detail_rows,
+            maeling=maeling, maeling_label=maeling_label,
+            maelingar=[(k, v[0]) for k, v in MIDST_MAELINGAR.items()],
+            telja_npa=telja_npa, med_heimahjukrun=med_heimahjukrun,
+            raunvirdi=raunvirdi, base_year=base_year,
+            chart_years=[str(y) for y in years],
+            chart_share=[round(totals[y]["fatlad"] /
+                               (totals[y]["fatlad"] + totals[y]["midstod"]) * 100, 1)
+                         if (totals[y]["fatlad"] + totals[y]["midstod"]) else None
+                         for y in years],
+            chart_idx_fatlad=[round(idx_fatlad[y], 1) if y in idx_fatlad else None
+                              for y in years],
+            chart_idx_midstod=[round(idx_midstod[y], 1) if y in idx_midstod else None
+                               for y in years],
         )
 
     # =========================================================================

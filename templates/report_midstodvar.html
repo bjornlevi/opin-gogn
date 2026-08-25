@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+
+{% set page_id = "reports" %}
+
+{% block title %}Miðstöðvar — hlutdeild málaflokks fatlaðs fólks{% endblock %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-reykjavik">Reykjavík</div>
+  <h1>Miðstöðvar og málaflokkur fatlaðs fólks</h1>
+  <p>Hlutdeild málaflokks fatlaðs fólks í rekstri miðstöðvanna og þróun þess sem eftir stendur</p>
+</div>
+
+{% if not data_loaded %}
+<div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+
+<div class="layout">
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="panel">
+      <div class="section-title">Mælikvarði</div>
+      <div class="pill-grid" style="margin-bottom:14px">
+        {% for key, label in maelingar %}
+          <a class="pill {% if maeling == key %}active{% endif %}"
+             href="?maeling={{ key }}&npa={{ 'true' if telja_npa else 'false' }}&heimahjukrun={{ 'true' if med_heimahjukrun else 'false' }}&raunvirdi={{ 'true' if raunvirdi else 'false' }}&grunnar={{ base_year }}">{{ label }}</a>
+        {% endfor %}
+      </div>
+
+      <div class="section-title">Umfang</div>
+      <div class="pill-grid" style="margin-bottom:14px">
+        <a class="pill {% if telja_npa %}active{% endif %}"
+           href="?maeling={{ maeling }}&npa={{ 'false' if telja_npa else 'true' }}&heimahjukrun={{ 'true' if med_heimahjukrun else 'false' }}&raunvirdi={{ 'true' if raunvirdi else 'false' }}&grunnar={{ base_year }}">NPA í málaflokknum</a>
+        <a class="pill {% if not med_heimahjukrun %}active{% endif %}"
+           href="?maeling={{ maeling }}&npa={{ 'true' if telja_npa else 'false' }}&heimahjukrun={{ 'false' if med_heimahjukrun else 'true' }}&raunvirdi={{ 'true' if raunvirdi else 'false' }}&grunnar={{ base_year }}">Heimahjúkrun frá</a>
+      </div>
+
+      <div class="section-title">Vísitala</div>
+      <div class="pill-grid" style="margin-bottom:14px">
+        <a class="pill {% if raunvirdi %}active{% endif %}"
+           href="?maeling={{ maeling }}&npa={{ 'true' if telja_npa else 'false' }}&heimahjukrun={{ 'true' if med_heimahjukrun else 'false' }}&raunvirdi={{ 'false' if raunvirdi else 'true' }}&grunnar={{ base_year }}">{{ 'Raunvirði' if raunvirdi else 'Nafnvirði' }}</a>
+      </div>
+
+      <div class="section-title">Grunnár vísitölu</div>
+      <div class="pill-grid">
+        {% for y in years %}
+          <a class="pill {% if base_year == y %}active{% endif %}"
+             href="?maeling={{ maeling }}&npa={{ 'true' if telja_npa else 'false' }}&heimahjukrun={{ 'true' if med_heimahjukrun else 'false' }}&raunvirdi={{ 'true' if raunvirdi else 'false' }}&grunnar={{ y }}">{{ y }}</a>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:12px">
+      <div class="section-title">Um skýrsluna</div>
+      <p style="font-size:12px;color:var(--muted);line-height:1.55;margin:0">
+        Ársuppgjörið hefur enga miðstöðvavídd — <code>xeining*</code> er tómt frá og
+        með 2018. Umfang miðstöðvanna er því endurgert út frá <code>samtala0</code>
+        innan velferðarsviðs og hvert gildi flokkað handvirkt. Sundurliðunin neðst
+        sýnir alla flokkunina svo hægt sé að sannreyna hana.
+      </p>
+      <p style="font-size:12px;color:var(--muted);line-height:1.55;margin:10px 0 0">
+        Skýrslan nær aftur til 2018. Færslur 2014–2017 hafa hvorki
+        <code>samtala1</code> né <code>tegund1</code> og verða ekki flokkaðar
+        með þessum hætti.
+      </p>
+      <p style="font-size:12px;color:var(--muted);line-height:1.55;margin:10px 0 0">
+        <strong>Rof í reikningsskilum 2024.</strong> Liðir voru endurskilgreindir
+        milli 2023 og 2024, m.a. <em>Þjónusta v/velferðarmála</em> (2,3 ma.kr.,
+        flokkuð hér á miðstöðvar) sem hverfur og <em>Stjórnsýsla og miðlæg
+        þjónusta</em> sem kemur í staðinn, og <em>Rekstur miðstöðva</em>
+        (798 → 2 m.kr.). Hluti af lækkun vísitölunnar fyrir önnur verkefni
+        miðstöðva 2023 → 2024 stafar af þessu en ekki af raunbreytingu.
+      </p>
+      <p style="font-size:12px;color:var(--muted);line-height:1.55;margin:10px 0 0">
+        Raunvirði er leiðrétt með launavísitölu Hagstofunnar (ársmeðaltöl, LAU04200).
+      </p>
+    </div>
+  </div>
+
+  <!-- Main -->
+  <div>
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Hlutdeild málaflokks fatlaðs fólks í umfangi miðstöðvanna</div>
+      <div class="chart-wrap" style="height:260px">
+        <canvas id="share-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">
+        Þróun, {{ 'raunvirði' if raunvirdi else 'nafnvirði' }} — {{ base_year }} = 100
+      </div>
+      <div class="chart-wrap" style="height:260px">
+        <canvas id="index-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Eftir árum — {{ maeling_label }}</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ár</th>
+              <th class="num">Málaflokkur fatlaðs fólks</th>
+              <th class="num">Önnur verkefni miðstöðva</th>
+              <th class="num">Umfang miðstöðva alls</th>
+              <th class="num">Hlutdeild</th>
+              <th class="num">Breyting (pp)</th>
+              <th class="num">Vísit. fatlað</th>
+              <th class="num">Vísit. annað</th>
+              <th class="num">Miðlægt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in year_rows %}
+            <tr>
+              <td><strong>{{ row.year }}</strong></td>
+              <td class="num">{{ row.fatlad }}</td>
+              <td class="num">{{ row.midstod }}</td>
+              <td class="num">{{ row.scope }}</td>
+              <td class="num"><strong>{{ row.share }}</strong></td>
+              <td class="num {% if row.share_dir == 'up' %}chg-up{% else %}chg-down{% endif %}">
+                {{ row.share_chg }}
+              </td>
+              <td class="num">{{ row.idx_fatlad }}</td>
+              <td class="num">{{ row.idx_midstod }}</td>
+              <td class="num" style="color:var(--muted)">{{ row.midlaegt }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="section-title">Sundurliðun og flokkun — {{ maeling_label }}</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Liður (samtala0)</th>
+              <th>Flokkur</th>
+              {% for y in years %}<th class="num">{{ y }}</th>{% endfor %}
+              <th class="num">Alls</th>
+              <th class="num">Breyting</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in detail_rows %}
+            <tr>
+              <td>{{ row.name }}</td>
+              <td>
+                <span class="pill" style="pointer-events:none;font-size:11px;
+                  {% if row.group == 'fatlad' %}background:rgba(13,148,136,.12);color:#0d9488
+                  {% elif row.group == 'midstod' %}background:rgba(37,99,235,.10);color:#2563eb
+                  {% else %}background:rgba(0,0,0,.05);color:var(--muted){% endif %}">
+                  {{ row.group_label }}
+                </span>
+              </td>
+              {% for v in row.cells %}<td class="num">{{ v }}</td>{% endfor %}
+              <td class="num"><strong>{{ row.total_fmt }}</strong></td>
+              <td class="num">{{ row.trend }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded %}
+const years = {{ chart_years | tojson }};
+
+new Chart(document.getElementById("share-chart"), {
+  type: "line",
+  data: {
+    labels: years,
+    datasets: [{
+      label: "Hlutdeild málaflokks fatlaðs fólks",
+      data: {{ chart_share | tojson }},
+      borderColor: "rgba(13,148,136,.9)",
+      backgroundColor: "rgba(13,148,136,.15)",
+      borderWidth: 2, pointRadius: 4, tension: .3, fill: true
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ctx.parsed.y + "%" } }
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: "#f0f0f0" }, ticks: { callback: v => v + "%" } }
+    }
+  }
+});
+
+new Chart(document.getElementById("index-chart"), {
+  type: "line",
+  data: {
+    labels: years,
+    datasets: [
+      {
+        label: "Málaflokkur fatlaðs fólks",
+        data: {{ chart_idx_fatlad | tojson }},
+        borderColor: "rgba(13,148,136,.9)",
+        borderWidth: 2, pointRadius: 3, tension: .3, fill: false
+      },
+      {
+        label: "Önnur verkefni miðstöðva",
+        data: {{ chart_idx_midstod | tojson }},
+        borderColor: "rgba(37,99,235,.9)",
+        borderWidth: 2, pointRadius: 3, tension: .3, fill: false
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: "index" },
+    plugins: { legend: { display: true, position: "bottom" } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { grid: { color: "#f0f0f0" } }
+    }
+  }
+});
+{% endif %}
+</script>
+{% endblock %}
