@@ -86,13 +86,17 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
     print(f"Found {len(correction_ids)} correction transactions")
 
     if correction_ids:
-        # Mark corrections using rowid
-        for row_id in correction_ids:
-            con.execute("""
-            UPDATE data_with_flags
-            SET is_correction = TRUE
-            WHERE rowid = ?
-            """, [row_id])
+        # Mark corrections using rowid. One set-based UPDATE, not one per id:
+        # each UPDATE rewrites row groups across the whole table, so a loop here
+        # costs a full table pass per correction found.
+        con.execute("CREATE TEMP TABLE correction_rowids (rowid BIGINT)")
+        con.executemany("INSERT INTO correction_rowids VALUES (?)",
+                        [(row_id,) for row_id in correction_ids])
+        con.execute("""
+        UPDATE data_with_flags
+        SET is_correction = TRUE
+        WHERE rowid IN (SELECT rowid FROM correction_rowids)
+        """)
 
     # Remove temporary numeric column and export
     con.execute("""

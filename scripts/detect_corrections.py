@@ -15,7 +15,8 @@ import duckdb
 from pathlib import Path
 
 
-def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1e9):
+def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1e9,
+                       memory_limit: str | None = None, temp_dir: str | None = None):
     """
     Detect correction pairs where transactions cancel each other out.
 
@@ -23,64 +24,79 @@ def detect_corrections(input_file: Path, output_file: Path, threshold: float = 1
     - Same buyer, vendor, type within a 2-day window
     - Positive and negative amounts that are nearly equal
     - Amounts exceed threshold (likely errors)
+
+    The input is never materialised as a table: the pair search reads only the
+    handful of rows above the threshold, and the output is written by streaming
+    the parquet file straight through a single COPY. This keeps peak memory flat
+    regardless of input size.
     """
     con = duckdb.connect(":memory:")
+    if memory_limit:
+        con.execute(f"SET memory_limit='{memory_limit}'")
+    if temp_dir:
+        con.execute(f"SET temp_directory='{temp_dir}'")
+    # We do not care about row order in the output, and not preserving it lets
+    # DuckDB stream the COPY below instead of buffering the whole result.
+    con.execute("SET preserve_insertion_order=false")
 
-    # Read data using absolute path
     input_path = str(input_file.resolve())
     output_path = str(output_file.resolve())
 
-    con.execute(f"CREATE TABLE data_raw AS SELECT * FROM read_parquet('{input_path}')")
-
-    # Add is_correction column
-    con.execute("""
-    CREATE TABLE data AS
+    # Only rows near the threshold can take part in a pair: |a| > threshold and
+    # ||a| - |b|| < 1000 together imply |b| > threshold - 1000. Filtering both
+    # sides up front turns a scan of the whole table into a scan of a few rows.
+    con.execute(
+        """
+    CREATE TEMP TABLE candidates AS
     SELECT
-        *,
-        CAST(FALSE AS BOOLEAN) AS is_correction
-    FROM data_raw
-    """)
-
-    # Find correction pairs: same buyer/vendor/type, opposite signs, similar amounts
-    # Use CAST to DOUBLE early to avoid INT64 overflow
-    con.execute("""
-    WITH pairs AS (
-        SELECT
-            a."Númer reiknings" as a_id,
-            b."Númer reiknings" as b_id,
-            CAST(a."Upphæð línu" AS DOUBLE) as amount_a,
-            CAST(b."Upphæð línu" AS DOUBLE) as amount_b
-        FROM data a
-        JOIN data b ON
-            a."Kaupandi" = b."Kaupandi" AND
-            a."Birgi" = b."Birgi" AND
-            a."Tegund" = b."Tegund" AND
-            CAST(a."Dags.greiðslu" AS DATE) <= CAST(b."Dags.greiðslu" AS DATE) AND
-            DATEDIFF('day', CAST(a."Dags.greiðslu" AS DATE), CAST(b."Dags.greiðslu" AS DATE)) <= 2 AND
-            (CAST(a."Upphæð línu" AS DOUBLE) > 0) != (CAST(b."Upphæð línu" AS DOUBLE) > 0)  -- opposite signs
-        WHERE
-            ABS(CAST(a."Upphæð línu" AS DOUBLE)) > ? AND
-            ABS(ABS(CAST(a."Upphæð línu" AS DOUBLE)) - ABS(CAST(b."Upphæð línu" AS DOUBLE))) < 1000  -- nearly equal
+        "Númer reiknings" AS invoice,
+        "Kaupandi" AS kaupandi,
+        "Birgi" AS birgi,
+        "Tegund" AS tegund,
+        CAST("Dags.greiðslu" AS DATE) AS dags,
+        CAST("Upphæð línu" AS DOUBLE) AS amount
+    FROM read_parquet(?)
+    WHERE ABS(CAST("Upphæð línu" AS DOUBLE)) > ?
+    """,
+        [input_path, threshold - 1000],
     )
-    SELECT DISTINCT a_id FROM pairs
-    """, [threshold])
 
-    correction_ids = set(row[0] for row in con.fetchall())
+    con.execute(
+        """
+    CREATE TEMP TABLE corrections AS
+    SELECT DISTINCT a.invoice
+    FROM candidates a
+    JOIN candidates b ON
+        a.kaupandi = b.kaupandi AND
+        a.birgi = b.birgi AND
+        a.tegund = b.tegund AND
+        a.dags <= b.dags AND
+        DATEDIFF('day', a.dags, b.dags) <= 2 AND
+        (a.amount > 0) != (b.amount > 0)  -- opposite signs
+    WHERE
+        ABS(a.amount) > ? AND
+        ABS(ABS(a.amount) - ABS(b.amount)) < 1000  -- nearly equal
+    """,
+        [threshold],
+    )
 
-    print(f"Found {len(correction_ids)} correction transactions")
+    n_corrections = con.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
+    print(f"Found {n_corrections} correction transactions")
 
-    if correction_ids:
-        # Mark corrections
-        id_list = ','.join([f"'{id}'" for id in correction_ids])
-        con.execute(f"""
-        UPDATE data
-        SET is_correction = TRUE
-        WHERE "Númer reiknings" IN ({id_list})
-        """)
-
-    # Export using DuckDB's native parquet write
-    con.execute(f'CREATE TABLE export_data AS SELECT * FROM data')
-    con.execute(f'COPY export_data TO "{output_path}" (FORMAT PARQUET)')
+    # Stream input -> output in one pass, adding the flag as the last column.
+    con.execute(
+        f"""
+    COPY (
+        SELECT
+            d.*,
+            -- COALESCE: a NULL invoice number makes IN return NULL, but the
+            -- flag must stay boolean-valued for downstream filters.
+            COALESCE("Númer reiknings" IN (SELECT invoice FROM corrections), FALSE)
+                AS is_correction
+        FROM read_parquet('{input_path}') d
+    ) TO '{output_path}' (FORMAT PARQUET)
+    """
+    )
 
     print(f"Saved to {output_file}")
 
@@ -90,6 +106,11 @@ if __name__ == "__main__":
     parser.add_argument("--input", required=True, type=Path, help="Input parquet file")
     parser.add_argument("--output", required=True, type=Path, help="Output parquet file")
     parser.add_argument("--threshold", type=float, default=1e9, help="Amount threshold for flagging")
+    parser.add_argument("--memory-limit", default=None,
+                        help="DuckDB memory limit, e.g. 1GB (default: DuckDB's own)")
+    parser.add_argument("--temp-dir", default=None,
+                        help="Directory for DuckDB spill files")
 
     args = parser.parse_args()
-    detect_corrections(args.input, args.output, args.threshold)
+    detect_corrections(args.input, args.output, args.threshold,
+                       args.memory_limit, args.temp_dir)
