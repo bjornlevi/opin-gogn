@@ -120,12 +120,19 @@ reykjavik-anomalies:
 
 # ── Ríkisreikningur ─────────────────────────────────────────────────────────
 
+# Built from manually placed CSVs (data/ is gitignored), so the inputs may
+# simply be absent on a given machine. Skip with a warning rather than taking
+# the rest of the pipeline down with it.
 rikisreikningur-pipeline:
 	mkdir -p $(RIKISREIKNINGUR_PROCESSED_DIR)
-	@echo "==> Preparing Ríkisreikningur data from local CSV files..."
-	$(PYTHON) $(SCRIPTS)/prepare_rikisreikningur.py \
-		--input-dir "data/rikisreikningur" \
-		--output "$(RIKISREIKNINGUR_PROCESSED_DIR)/rikisreikningur_combined.parquet"
+	@if ! ls data/rikisreikningur/Rikisreikningur_gogn_*.csv >/dev/null 2>&1; then \
+		echo "⚠ Skipping Ríkisreikningur: no Rikisreikningur_gogn_*.csv in data/rikisreikningur/"; \
+	else \
+		echo "==> Preparing Ríkisreikningur data from local CSV files..."; \
+		$(PYTHON) $(SCRIPTS)/prepare_rikisreikningur.py \
+			--input-dir "data/rikisreikningur" \
+			--output "$(RIKISREIKNINGUR_PROCESSED_DIR)/rikisreikningur_combined.parquet"; \
+	fi
 
 # ── Anomalies (rebuild for both) ──────────────────────────────────────────────
 
