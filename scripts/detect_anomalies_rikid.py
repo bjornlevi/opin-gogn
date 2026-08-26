@@ -29,26 +29,22 @@ def detect_anomalies(input_file: Path, output_all: Path, output_flagged: Path,
 
     con = duckdb.connect(":memory:")
 
-    # Read data with computed year column
+    # Aggregate straight from the parquet file. Materialising the full table
+    # first (17.5M rows) just to add a `year` column costs a full in-memory copy
+    # for no benefit; reading here lets DuckDB push the projection down and only
+    # touch the five columns the aggregation actually needs.
     con.execute(f"""
-    CREATE TABLE data AS
-    SELECT *, YEAR("Dags.greiðslu") AS year
-    FROM read_parquet('{input_file}')
-    """)
-
-    # Build aggregated data grouped by year and key categories
-    con.execute("""
     CREATE TABLE yearly_agg AS
     SELECT
-        year,
+        YEAR("Dags.greiðslu") AS year,
         "Kaupandi",
         "Birgi",
         "Tegund",
         SUM("Upphæð línu") AS amount
-    FROM data
+    FROM read_parquet('{input_file}')
     WHERE (is_correction = FALSE OR is_correction IS NULL)
-      AND year IS NOT NULL
-    GROUP BY year, "Kaupandi", "Birgi", "Tegund"
+      AND YEAR("Dags.greiðslu") IS NOT NULL
+    GROUP BY 1, 2, 3, 4
     """)
 
     # Create YoY comparisons

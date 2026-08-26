@@ -25,8 +25,10 @@ def detect_anomalies(input_file: Path, output_all: Path, output_flagged: Path,
     """
     con = duckdb.connect(":memory:")
 
-    # Read data
-    con.execute(f"CREATE TABLE data AS SELECT * FROM read_parquet('{input_file}')")
+    # Read the parquet through a view rather than materialising it: the only
+    # consumer is the aggregation below, so a full in-memory copy buys nothing
+    # and blocks projection pushdown.
+    con.execute(f"CREATE VIEW data AS SELECT * FROM read_parquet('{input_file}')")
 
     # Build aggregated data grouped by year and key categories
     con.execute("""
