@@ -172,24 +172,54 @@ def sql_path(path: Path) -> str:
     return str(path).replace("'", "''")
 
 
-def combine_parquets(parquet_files: list[Path], output_file: Path) -> None:
-    """Combine parquet files into a single deduplicated output file."""
-    if not parquet_files:
+def combine_parquets(existing_file: Path | None, chunk_files: list[Path],
+                     output_file: Path) -> None:
+    """Merge freshly downloaded chunks into the existing parquet file.
+
+    Rows are deduplicated by *source date range*, not by row content: existing
+    rows whose payment date falls inside the newly downloaded range are dropped
+    and replaced wholesale by the fresh chunks.
+
+    Do NOT use `SELECT DISTINCT *` here. The source legitimately contains
+    repeated identical invoice lines — one Vegagerðin/Síminn invoice carries the
+    same 430 kr. line 387 times — so content dedup silently deletes ~11% of all
+    rows. It also collapses the handful of ±232-trillion outlier rows
+    asymmetrically, which corrupts whole-year totals.
+    """
+    if not chunk_files:
         raise RuntimeError("No parquet files to combine")
 
-    print(f"Combining {len(parquet_files)} parquet inputs...")
-    selects = [
-        f"SELECT * FROM read_parquet('{sql_path(path)}')"
-        for path in parquet_files
-    ]
-    union_sql = " UNION ALL ".join(selects)
+    n_inputs = len(chunk_files) + (1 if existing_file and existing_file.exists() else 0)
+    print(f"Combining {n_inputs} parquet inputs...")
+
+    chunk_union = " UNION ALL ".join(
+        f"SELECT * FROM read_parquet('{sql_path(path)}')" for path in chunk_files
+    )
 
     con = duckdb.connect(":memory:")
+    # Streaming append; nothing here needs a global sort or hash aggregation.
+    con.execute("SET preserve_insertion_order=false")
     tmp_output = output_file.with_suffix(".tmp.parquet")
     try:
+        con.execute(f"CREATE TEMP VIEW new_rows AS {chunk_union}")
+        lo, hi = con.execute(
+            'SELECT MIN(CAST("Dags.greiðslu" AS DATE)), '
+            '       MAX(CAST("Dags.greiðslu" AS DATE)) FROM new_rows'
+        ).fetchone()
+
+        if existing_file and existing_file.exists() and lo is not None:
+            print(f"  Replacing existing rows dated {lo} .. {hi}")
+            combined_sql = (
+                f"SELECT * FROM read_parquet('{sql_path(existing_file)}') "
+                f"WHERE \"Dags.greiðslu\" IS NULL "
+                f"   OR CAST(\"Dags.greiðslu\" AS DATE) NOT BETWEEN DATE '{lo}' AND DATE '{hi}' "
+                f"UNION ALL SELECT * FROM new_rows"
+            )
+        else:
+            combined_sql = "SELECT * FROM new_rows"
+
         con.execute(
-            f"COPY (SELECT DISTINCT * FROM ({union_sql}) t) "
-            f"TO '{sql_path(tmp_output)}' (FORMAT PARQUET)"
+            f"COPY ({combined_sql}) TO '{sql_path(tmp_output)}' (FORMAT PARQUET)"
         )
         tmp_output.replace(output_file)
         print(f"Combined to: {output_file}")
@@ -257,11 +287,8 @@ def main():
         print("No data downloaded", file=sys.stderr)
         sys.exit(1)
 
-    combine_inputs = []
-    if output_file.exists():
-        combine_inputs.append(output_file)
-    combine_inputs.extend(chunk_files)
-    combine_parquets(combine_inputs, output_file)
+    combine_parquets(output_file if output_file.exists() else None,
+                     chunk_files, output_file)
 
     print(f"✓ Total: {total_rows} rows in {output_file}")
 

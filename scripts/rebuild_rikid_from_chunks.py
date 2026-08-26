@@ -28,9 +28,13 @@ def rebuild(chunks_dir: Path, output_file: Path) -> None:
     tmp_output = output_file.with_suffix(".tmp.parquet")
     con = duckdb.connect(":memory:")
     try:
+        # Plain UNION ALL, never SELECT DISTINCT *: the source legitimately
+        # repeats identical invoice lines (one invoice carries the same 430 kr.
+        # line 387 times), so content dedup drops ~11% of all rows. Chunks cover
+        # disjoint months, so there is nothing to deduplicate here anyway.
+        con.execute("SET preserve_insertion_order=false")
         con.execute(
-            f"COPY (SELECT DISTINCT * FROM ({union_sql}) t) "
-            f"TO '{sql_path(tmp_output)}' (FORMAT PARQUET)"
+            f"COPY ({union_sql}) TO '{sql_path(tmp_output)}' (FORMAT PARQUET)"
         )
         tmp_output.replace(output_file)
     finally:
