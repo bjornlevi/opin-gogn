@@ -49,33 +49,37 @@ def add_metric(store, prefix, label, section, year, values, per_capita=False):
 
 
 def parse_current(accounts_path: Path, pc_path: Path, store, municipality_names):
-    ws = openpyxl.load_workbook(accounts_path, data_only=True).active
-    year = int(ws.cell(2, 2).value)
-    columns = [(col, clean_name(ws.cell(6, col).value)) for col in range(4, ws.max_column + 1)
-               if ws.cell(6, col).value and is_municipality(clean_name(ws.cell(6, col).value))]
+    book = openpyxl.load_workbook(accounts_path, read_only=True, data_only=True)
+    rows = list(book.active.iter_rows(values_only=True))
+    book.close()
+    year = int(rows[1][1])
+    columns = [(index, clean_name(value)) for index, value in enumerate(rows[5][3:], start=3)
+               if value and is_municipality(clean_name(value))]
     section = None
-    for row in range(7, ws.max_row + 1):
-        if ws.cell(row, 1).value:
-            section = str(ws.cell(row, 1).value).strip()
-        label = ws.cell(row, 2).value
+    for row in rows[6:]:
+        if row[0]:
+            section = str(row[0]).strip()
+        label = row[1]
         if not label:
             continue
-        values = {name: float(ws.cell(row, col).value) for col, name in columns
-                  if isinstance(ws.cell(row, col).value, (int, float))}
+        values = {name: float(row[index]) for index, name in columns
+                  if index < len(row) and isinstance(row[index], (int, float))}
         if values:
             municipality_names.update(values)
             add_metric(store, "acc", str(label).strip(), section, year, values)
 
-    ws = openpyxl.load_workbook(pc_path, data_only=True).active
-    pc_year = int(ws.cell(2, 2).value)
-    columns = [(col, clean_name(ws.cell(5, col).value)) for col in range(4, ws.max_column + 1)
-               if ws.cell(5, col).value and is_municipality(clean_name(ws.cell(5, col).value))]
-    for row in range(6, ws.max_row + 1):
-        label = ws.cell(row, 1).value
+    book = openpyxl.load_workbook(pc_path, read_only=True, data_only=True)
+    rows = list(book.active.iter_rows(values_only=True))
+    book.close()
+    pc_year = int(rows[1][1])
+    columns = [(index, clean_name(value)) for index, value in enumerate(rows[4][3:], start=3)
+               if value and is_municipality(clean_name(value))]
+    for row in rows[5:]:
+        label = row[0]
         if not label:
             continue
-        values = {name: float(ws.cell(row, col).value) for col, name in columns
-                  if isinstance(ws.cell(row, col).value, (int, float))}
+        values = {name: float(row[index]) for index, name in columns
+                  if index < len(row) and isinstance(row[index], (int, float))}
         if values:
             municipality_names.update(values)
             add_metric(store, "pc", str(label).strip(), "Málaflokkar", pc_year, values, True)
@@ -83,23 +87,24 @@ def parse_current(accounts_path: Path, pc_path: Path, store, municipality_names)
 
 
 def parse_archive(path: Path, expected_year: int, store, municipality_names):
-    book = openpyxl.load_workbook(path, data_only=True)
+    book = openpyxl.load_workbook(path, read_only=True, data_only=True)
     ws = book["Tafla 6"]
-    year = int(ws.cell(3, 1).value or expected_year)
+    rows = list(ws.iter_rows(values_only=True))
+    year = int(rows[2][0] or expected_year)
     last_name = ""
     columns = []
-    for col in range(2, ws.max_column + 1):
-        if ws.cell(5, col).value:
-            last_name = clean_name(ws.cell(5, col).value)
-        if col >= 4 and ws.cell(8, col).value == "A hluti" and last_name:
-            columns.append((col, last_name))
+    for index, value in enumerate(rows[4][1:], start=1):
+        if value:
+            last_name = clean_name(value)
+        if index >= 3 and index < len(rows[7]) and rows[7][index] == "A hluti" and last_name:
+            columns.append((index, last_name))
     section = None
-    for row in range(9, ws.max_row + 1):
-        label = ws.cell(row, 1).value
+    for row in rows[8:]:
+        label = row[0]
         if not label:
             continue
-        values = {name: float(ws.cell(row, col).value) for col, name in columns
-                  if isinstance(ws.cell(row, col).value, (int, float))}
+        values = {name: float(row[index]) for index, name in columns
+                  if index < len(row) and isinstance(row[index], (int, float))}
         if values:
             municipality_names.update(values)
             add_metric(store, "acc", str(label).strip(), section or "Ársreikningur", year, values)
@@ -107,9 +112,10 @@ def parse_archive(path: Path, expected_year: int, store, municipality_names):
             section = str(label).split("(")[0].strip()
 
     ws = book["Tafla 8"]
-    for row in range(1, ws.max_row + 1):
-        category, name = ws.cell(row, 1).value, ws.cell(row, 4).value
-        net_per_capita = ws.cell(row, 15).value
+    for row in ws.iter_rows(values_only=True):
+        category = row[0] if len(row) > 0 else None
+        name = row[3] if len(row) > 3 else None
+        net_per_capita = row[14] if len(row) > 14 else None
         if category and name and isinstance(net_per_capita, (int, float)):
             label = str(category).strip()
             municipality = clean_name(name)
@@ -117,6 +123,7 @@ def parse_archive(path: Path, expected_year: int, store, municipality_names):
             if key not in store:
                 add_metric(store, "pc", label, "Málaflokkar", year, {}, True)
             store[key]["values"].setdefault(str(year), {})[municipality] = -float(net_per_capita)
+    book.close()
 
 
 def download(url: str, path: Path):
