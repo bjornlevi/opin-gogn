@@ -23,6 +23,7 @@
       --accent-rikid:     #2563eb;
       --accent-reykjavik: #0d9488;
       --accent-rikisreikningur: #b45309;
+      --accent-municipalities: #7c3aed;
       --accent:           #2563eb;   /* overridden by source class */
       --accent-light:     #eff6ff;
       --accent-text:      #1d4ed8;
@@ -36,6 +37,11 @@
       --accent:       #b45309;
       --accent-light: #fff7ed;
       --accent-text:  #9a3412;
+    }
+    body.source-municipalities {
+      --accent:       #7c3aed;
+      --accent-light: #f5f3ff;
+      --accent-text:  #6d28d9;
     }
 
     /* ------------------------------------------------------------------ */
@@ -99,6 +105,7 @@
     .source-tab.active-rikid     { background: #eff6ff; color: var(--accent-rikid);     font-weight: 600; }
     .source-tab.active-reykjavik { background: #f0fdfa; color: var(--accent-reykjavik); font-weight: 600; }
     .source-tab.active-rikisreikningur { background: #fff7ed; color: var(--accent-rikisreikningur); font-weight: 600; }
+    .source-tab.active-municipalities { background: #f5f3ff; color: var(--accent-municipalities); font-weight: 600; }
     .source-dot {
       width: 8px; height: 8px;
       border-radius: 50%;
@@ -107,6 +114,7 @@
     .dot-rikid     { background: var(--accent-rikid); }
     .dot-reykjavik { background: var(--accent-reykjavik); }
     .dot-rikisreikningur { background: var(--accent-rikisreikningur); }
+    .dot-municipalities { background: var(--accent-municipalities); }
 
     /* ------------------------------------------------------------------ */
     /* Page sub-navigation                                                 */
@@ -171,6 +179,7 @@
     .badge-rikid     { background: #eff6ff; color: var(--accent-rikid);     }
     .badge-reykjavik { background: #f0fdfa; color: var(--accent-reykjavik); }
     .badge-rikisreikningur { background: #fff7ed; color: var(--accent-rikisreikningur); }
+    .badge-municipalities { background: #f5f3ff; color: var(--accent-municipalities); }
 
     .layout {
       display: grid;
@@ -492,6 +501,10 @@
        class="source-tab {% if source is defined and source == 'rikisreikningur' %}active-rikisreikningur{% endif %}">
       <span class="source-dot dot-rikisreikningur"></span>Ríkisreikningur
     </a>
+    <a href="{{ url_for('municipal_comparison') }}"
+       class="source-tab {% if source is defined and source == 'municipalities' %}active-municipalities{% endif %}">
+      <span class="source-dot dot-municipalities"></span>Sveitarfélög
+    </a>
   </div>
 </header>
 
@@ -500,7 +513,9 @@
 <!-- ================================================================== -->
 {% if source is defined %}
 <nav class="page-nav">
-  {% if source == 'rikid' %}
+  {% if source == 'municipalities' %}
+    <a href="{{ url_for('municipal_comparison') }}" class="active">Samanburður</a>
+  {% elif source == 'rikid' %}
     <a href="{{ url_for('rikid_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Skoðun</a>
     <a href="{{ url_for('rikid_types') }}"     {% if page_id == 'types' %}class="active"{% endif %}>Tegund útgjalda</a>
     <a href="{{ url_for('rikid_sellers') }}"   {% if page_id == 'sellers' %}class="active"{% endif %}>Birgi</a>

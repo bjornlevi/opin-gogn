@@ -18,7 +18,7 @@ TO        ?=
 .PHONY: web dev install pipeline anomalies \
         rikid-pipeline rikid-anomalies \
         reykjavik-pipeline reykjavik-anomalies \
-        rikisreikningur-pipeline
+        rikisreikningur-pipeline municipality-pipeline
 
 # ── Web ──────────────────────────────────────────────────────────────────────
 
@@ -50,6 +50,7 @@ pipeline:
 		$(MAKE) rikid-pipeline FROM=2017-01-01 || echo "⚠ Rikið pipeline failed (API issue)"; \
 		$(MAKE) reykjavik-pipeline && \
 		$(MAKE) rikisreikningur-pipeline && \
+		$(MAKE) municipality-pipeline && \
 		$(MAKE) anomalies; \
 	else \
 		echo "==> Incremental update"; \
@@ -65,6 +66,7 @@ pipeline:
 		fi; \
 		$(MAKE) reykjavik-pipeline && \
 		$(MAKE) rikisreikningur-pipeline && \
+		$(MAKE) municipality-pipeline && \
 		$(MAKE) anomalies; \
 	fi
 
@@ -133,6 +135,13 @@ rikisreikningur-pipeline:
 			--input-dir "data/rikisreikningur" \
 			--output "$(RIKISREIKNINGUR_PROCESSED_DIR)/rikisreikningur_combined.parquet"; \
 	fi
+
+# ── Municipality annual accounts ────────────────────────────────────────────
+
+municipality-pipeline:
+	@echo "==> Downloading current and archived municipality accounts..."
+	$(PYTHON) $(SCRIPTS)/download_municipal_accounts.py \
+		--output "static/municipal_accounts.json"
 
 # ── Anomalies (rebuild for both) ──────────────────────────────────────────────
 

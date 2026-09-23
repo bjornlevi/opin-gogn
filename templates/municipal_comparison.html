@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% set page_id = "comparison" %}
+{% block title %}Samanburður sveitarfélaga — Opin gögn{% endblock %}
+{% macro show_value(value) -%}
+  {%- if value is none -%}–{%- elif is_percentage -%}{{ "%.1f"|format(value)|replace('.', ',') }}%{%- else -%}{{ fmt(value) }}{%- endif -%}
+{%- endmacro %}
+
+{% block body %}
+<div class="page-header">
+  <div class="source-badge badge-municipalities">Ársreikningar sveitarfélaga</div>
+  <h1>Berðu sveitarfélög saman</h1>
+  <p>Berðu sama reikningslið saman milli sveitarfélaga eða fylgstu með þróun hans milli ára.</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+<form method="get" class="layout" id="comparison-form">
+  <aside class="sidebar">
+    <div class="panel">
+      <div class="ctrl-group">
+        <label class="ctrl-label" for="metric">Reikningsliður</label>
+        <select name="metric" id="metric">
+          {% for group in metric_sections %}
+            <optgroup label="{{ group.name }}">
+              {% for item in group.metrics %}
+                <option value="{{ item.key }}" {% if item.key == metric.key %}selected{% endif %}>{{ item.label }}{% if item.per_capita %} — á íbúa{% endif %}</option>
+              {% endfor %}
+            </optgroup>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="ctrl-group">
+        <label class="ctrl-label" for="year">Reikningsár</label>
+        <select name="year" id="year">
+          {% for item_year in years %}
+            <option value="{{ item_year }}" {% if item_year == year %}selected{% endif %}>{{ item_year }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="ctrl-label">Sveitarfélög <span id="selection-count">{{ selected|length }}</span>/10</div>
+      <input type="text" id="municipality-search" placeholder="Leita að sveitarfélagi…" style="margin-bottom:8px">
+      <div id="municipality-list" style="max-height:310px; overflow:auto; border:1px solid var(--border); border-radius:8px; padding:6px">
+        {% for name in municipalities %}
+        <label class="municipality-option" data-name="{{ name|lower }}" style="display:flex; gap:8px; align-items:center; padding:5px 4px; font-size:12px; cursor:pointer">
+          <input type="checkbox" name="municipality" value="{{ name }}" {% if name in selected %}checked{% endif %} style="accent-color:var(--accent)">
+          <span>{{ name }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      <button class="btn" style="margin-top:10px">Uppfæra samanburð</button>
+    </div>
+  </aside>
+
+  <main>
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px">
+      <div>
+        <div class="ctrl-label">{{ metric.section }} · reikningsár {{ year }}</div>
+        <h2 style="margin:0; font-size:21px">{{ metric.label }} — {{ value_label|lower }}</h2>
+      </div>
+      <span class="pill active" style="cursor:default">{{ unit }}</span>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px; border-left:4px solid var(--accent); box-shadow:none">
+      <div class="section-title">Hvað er borið saman?</div>
+      <p style="margin:0; color:var(--muted); font-size:14px">{{ comparison_note }}</p>
+      <dl style="display:grid; grid-template-columns:auto 1fr; gap:4px 14px; margin:10px 0 0; font-size:13px">
+        <dt style="color:var(--muted)">Reikningsliður</dt><dd style="margin:0; font-weight:600">{{ metric.label }}</dd>
+        <dt style="color:var(--muted)">Tímabil</dt><dd style="margin:0">Reikningsár {{ year }}</dd>
+        <dt style="color:var(--muted)">Mælieining</dt><dd style="margin:0">{{ unit }}</dd>
+        <dt style="color:var(--muted)">Úrtak</dt><dd style="margin:0">{{ selected|length }} valin sveitarfélög</dd>
+      </dl>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="s-label">Miðgildi vals</div>
+        <div class="s-value">{{ show_value(median) }}</div>
+        <div class="s-sub">{{ unit }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Lægsta gildi</div>
+        <div class="s-value">{{ show_value(rows|map(attribute='value')|reject('none')|min) }}</div>
+        <div class="s-sub">{{ rows|selectattr('value', 'equalto', rows|map(attribute='value')|reject('none')|min)|map(attribute='name')|first }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="s-label">Hæsta gildi</div>
+        <div class="s-value">{{ show_value(rows|map(attribute='value')|reject('none')|max) }}</div>
+        <div class="s-sub">{{ rows|selectattr('value', 'equalto', rows|map(attribute='value')|reject('none')|max)|map(attribute='name')|first }}</div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">{{ metric.label }} eftir sveitarfélagi — {{ year }} ({{ unit }})</div>
+      <div class="chart-wrap" style="height:340px"><canvas id="municipal-chart"></canvas></div>
+    </div>
+
+    {% if trend_years|length > 1 %}
+    <div class="panel" style="margin-bottom:12px">
+      <div class="section-title">Þróun {{ trend_years|first }}–{{ trend_years|last }}</div>
+      <div class="chart-wrap" style="height:310px"><canvas id="municipal-trend-chart"></canvas></div>
+    </div>
+    {% endif %}
+
+    <div class="panel">
+      <div class="section-title">Gögn</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Sveitarfélag</th><th class="num">{{ metric.label }} ({{ unit }})</th><th class="num">Frávik frá miðgildi</th></tr></thead>
+          <tbody>
+          {% for row in rows %}
+            <tr>
+              <td>{{ row.name }}</td>
+              <td class="num">{{ show_value(row.value) }}</td>
+              <td class="num {% if row.value is not none and median is not none and row.value < median %}neg{% endif %}">{% if row.value is not none and median %}{{ fmt_pct((row.value / median - 1) * 100) }}{% else %}–{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div style="margin-top:12px; color:var(--muted); font-size:12px">
+        Heildartölur eru birtar í milljónum króna, málaflokkar í krónum á íbúa og hlutfallstölur í prósentum.
+        <a href="{{ source_url }}" target="_blank" rel="noopener">Skoða frumgögn ↗</a>
+      </div>
+    </div>
+  </main>
+</form>
+
+<script>
+const rows = {{ rows|tojson }};
+const isPercentage = {{ is_percentage|tojson }};
+new Chart(document.getElementById("municipal-chart"), {
+  type: "bar",
+  data: {
+    labels: rows.map(row => row.name),
+    datasets: [{
+      label: {{ unit|tojson }},
+      data: rows.map(row => row.value),
+      backgroundColor: rows.map(row => row.value < 0 ? "rgba(220,38,38,.65)" : "rgba(124,58,237,.68)"),
+      borderColor: rows.map(row => row.value < 0 ? "#dc2626" : "#6d28d9"),
+      borderWidth: 1,
+      borderRadius: 5
+    }]
+  },
+  options: {
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => new Intl.NumberFormat("is-IS", {maximumFractionDigits:isPercentage ? 1 : 0}).format(ctx.raw) + " {{ unit }}" } } },
+    scales: { y: { grid: { color: "rgba(148,163,184,.18)" }, ticks: { callback: value => new Intl.NumberFormat("is-IS", {notation:"compact"}).format(value) } }, x: { grid: { display:false } } }
+  }
+});
+
+{% if trend_years|length > 1 %}
+const palette = ["#7c3aed", "#0d9488", "#2563eb", "#b45309", "#dc2626", "#0891b2", "#4f46e5", "#65a30d", "#be185d", "#475569"];
+const trendData = {{ trend_datasets|tojson }};
+new Chart(document.getElementById("municipal-trend-chart"), {
+  type: "line",
+  data: {
+    labels: {{ trend_years|tojson }},
+    datasets: trendData.map((series, index) => ({
+      ...series,
+      borderColor: palette[index % palette.length],
+      backgroundColor: palette[index % palette.length],
+      borderWidth: 2,
+      pointRadius: 3,
+      tension: .2,
+      spanGaps: true
+    }))
+  },
+  options: {
+    maintainAspectRatio: false,
+    interaction: { mode: "index", intersect: false },
+    plugins: { tooltip: { callbacks: { label: ctx => ctx.dataset.label + ": " + new Intl.NumberFormat("is-IS", {maximumFractionDigits:0}).format(ctx.raw) + " {{ unit }}" } } },
+    scales: { y: { grid: { color: "rgba(148,163,184,.18)" }, ticks: { callback: value => new Intl.NumberFormat("is-IS", {notation:"compact"}).format(value) } }, x: { grid: { display:false } } }
+  }
+});
+{% endif %}
+
+const checks = [...document.querySelectorAll('input[name="municipality"]')];
+const count = document.getElementById('selection-count');
+checks.forEach(box => box.addEventListener('change', () => {
+  const checked = checks.filter(item => item.checked);
+  if (checked.length > 10) box.checked = false;
+  count.textContent = checks.filter(item => item.checked).length;
+}));
+document.getElementById('municipality-search').addEventListener('input', event => {
+  const query = event.target.value.toLocaleLowerCase('is');
+  document.querySelectorAll('.municipality-option').forEach(option => {
+    option.style.display = option.dataset.name.includes(query) ? 'flex' : 'none';
+  });
+});
+</script>
+{% endif %}
+{% endblock %}

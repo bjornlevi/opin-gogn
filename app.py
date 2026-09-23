@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import math
 import os
 import re
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
 
 import duckdb
@@ -54,6 +56,7 @@ RIKID_INSTITUTIONS_RECONCILIATION = Path(
     os.getenv("RIKID_INSTITUTIONS_RECONCILIATION",
               str(BASE_DIR / "data/rikisreikningur/processed/rikid_institutions_reconciliation.csv"))
 )
+MUNICIPAL_ACCOUNTS = BASE_DIR / "static/municipal_accounts.json"
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -126,6 +129,15 @@ def normalize_name(text: str) -> str:
     text = re.sub(r"\b(hf|ohf|ehf|ses|slf)\b", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+@lru_cache(maxsize=1)
+def load_municipal_accounts() -> dict:
+    """Load the compact snapshot generated from Sambandið's pivot workbooks."""
+    if not MUNICIPAL_ACCOUNTS.exists():
+        return {"available": False}
+    with MUNICIPAL_ACCOUNTS.open(encoding="utf-8") as handle:
+        return {"available": True, **json.load(handle)}
 
 
 def _rikid_headline() -> dict:
@@ -618,6 +630,84 @@ def create_app() -> Flask:
         rkv_stat = _rkv_headline()
         rikisreikningur_stat = _rikisreikningur_headline()
         return render_template("home.html", rikid=rikid_stat, reykjavik=rkv_stat, rikisreikningur=rikisreikningur_stat)
+
+    # ===========================================================================
+    # MUNICIPAL ACCOUNTS
+    # ===========================================================================
+
+    @app.route("/sveitarfelog/samanburdur")
+    def municipal_comparison():
+        data = load_municipal_accounts()
+        if not data.get("available"):
+            return render_template("municipal_comparison.html", source="municipalities",
+                                   page_id="comparison", data_loaded=False,
+                                   error="Gögn um ársreikninga sveitarfélaga fundust ekki.")
+
+        metrics = data["metrics"]
+        metric_key = request.args.get("metric", "ratio-operating-result")
+        metric = next((m for m in metrics if m["key"] == metric_key), metrics[0])
+        metric_years = sorted((int(y) for y in metric["values"]), reverse=True)
+        requested_year = request.args.get("year", str(metric_years[0]))
+        year = int(requested_year) if requested_year.isdigit() and int(requested_year) in metric_years else metric_years[0]
+        defaults = ["Reykjavíkurborg", "Kópavogsbær", "Hafnarfjarðarkaupstaður",
+                    "Reykjanesbær", "Akureyrarbær"]
+        selected = request.args.getlist("municipality")
+        selected = [m for m in selected if m in data["municipalities"]]
+        if not selected:
+            selected = [m for m in defaults if m in data["municipalities"]]
+        selected = selected[:10]
+
+        is_percentage = metric.get("percentage", False)
+        divisor = 1 if metric["per_capita"] or is_percentage else 1000
+        year_values = metric["values"].get(str(year), {})
+        rows = [{"name": name, "raw": year_values.get(name),
+                 "value": (year_values.get(name) / divisor
+                           if year_values.get(name) is not None else None)}
+                for name in selected]
+        rows.sort(key=lambda row: row["value"] if row["value"] is not None else float("inf"))
+        present = [row["value"] for row in rows if row["value"] is not None]
+        ordered = sorted(present)
+        median = (ordered[len(ordered) // 2] if len(ordered) % 2 else
+                  sum(ordered[len(ordered) // 2 - 1:len(ordered) // 2 + 1]) / 2) if ordered else None
+        sections = []
+        for item in metrics:
+            group = next((g for g in sections if g["name"] == item["section"]), None)
+            if group is None:
+                group = {"name": item["section"], "metrics": []}
+                sections.append(group)
+            group["metrics"].append(item)
+        trend_years = sorted(int(y) for y in metric["values"])
+        trend_datasets = [{"label": name,
+                           "data": [(metric["values"].get(str(y), {}).get(name) / divisor
+                                     if metric["values"].get(str(y), {}).get(name) is not None else None)
+                                    for y in trend_years]}
+                          for name in selected]
+        return render_template(
+            "municipal_comparison.html", source="municipalities", page_id="comparison",
+            data_loaded=True, year=year, years=metric_years,
+            municipalities=data["municipalities"], selected=selected, metric=metric,
+            metric_sections=sections, rows=rows, median=median,
+            trend_years=trend_years, trend_datasets=trend_datasets,
+            is_percentage=is_percentage,
+            unit=("% af tekjum" if is_percentage else
+                  "kr. á íbúa" if metric["per_capita"] else "m.kr."),
+            value_label=("Rekstrarafkoma miðað við tekjur" if is_percentage else
+                         "Nettó fjárhæð á íbúa" if metric["per_capita"]
+                         else "Heildarfjárhæð A-hluta"),
+            comparison_note=(
+                "Súlurnar sýna rekstrarniðurstöðu sem hlutfall af tekjum. Jákvætt "
+                "hlutfall er rekstrarafgangur en neikvætt hlutfall rekstrarhalli. "
+                "Hlutfallið gerir sveitarfélög af ólíkri stærð samanburðarhæfari."
+                if is_percentage else
+                "Súlurnar bera saman nettó fjárhæð þessa málaflokks á hvern íbúa "
+                "í völdum sveitarfélögum. Jákvætt gildi táknar nettókostnað en "
+                "neikvætt gildi nettótekjur."
+                if metric["per_capita"] else
+                "Súlurnar bera saman heildarfjárhæð sama reikningsliðar í A-hluta "
+                "valinna sveitarfélaga. Tölurnar eru ekki leiðréttar fyrir íbúafjölda "
+                "eða verðlagi."
+            ),
+            source_url="https://www.samband.is/arsreikningar")
 
     # ===========================================================================
     # RIKID
