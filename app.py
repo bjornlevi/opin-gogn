@@ -3354,8 +3354,9 @@ def create_app() -> Flask:
             "Þetta eru bókhaldsfærslur, ekki launavísitala eða meðaltal launa á starfsmann.",
             "Launatölur hér hreyfast líka vegna mönnunar, yfirvinnu, vakta, orlofs, lífeyrisskuldbindinga og leiðréttinga.",
             "Flokkunin hér byggir fyrst og fremst á launaflokkum ríkisreikningsins (`TegundL3Heiti`) frekar en einstökum undirtegundum.",
-            "Árið 2025 er aðeins fyrstu sex mánuðirnir í ríkisreikningsgögnunum og er því merkt með *.",
         ]
+        if partial_years:
+            caveats.append("Ár merkt með * eru ófullkomin í ríkisreikningsgögnunum.")
 
         chart_years = sorted(filtered_years)
         chart_labels = [f"{y}*" if y in partial_years else str(y) for y in chart_years]
