@@ -199,6 +199,7 @@ def load_fjarmal_throun(heildartolur: Path = FJARMAL_HEILDARTOLUR,
         r["heimild_label"] = " + ".join(_doc_label(d) for d in r["notad"]
                                         if d["heimild"] != "fjaraukalog" or d["gjold_breyting"])
         r["heimild_slod"] = r["notad"][0]["slod"] or None
+        r["handvirkt"] = any((d["skjal"] or "").endswith("(handvirkt)") for d in r["notad"])
     return rows, docs_by_year
 
 
@@ -3554,20 +3555,32 @@ def create_app() -> Flask:
             if d["heimild"] != "eldra"
         ]
 
-        # Samantektarlína eins og „Fyrir fjármálaáætlun“ í skjalinu:
-        # meðaltal yfir uppgjörsár (ekki fyrsta árið, sem hefur engar breytingar).
-        actual = [r for r in rows if not r["aaetlun"]]
-        hist = [r for r in actual if r["vlf_chg"] is not None]
+        # Samantektarlínur eins og „Fyrir fjármálaáætlun“ í skjalinu: meðaltöl
+        # yfir uppgjörsár (ekki fyrsta árið, sem hefur engar breytingar).
+        # Fyrri línan nær yfir öll ár, sú síðari aðeins ár sem eru ekki
+        # handvirkt dregin úr eldri ríkisreikningum (þ.e. frá 2017).
+        last_actual = max((r["year"] for r in rows if not r["aaetlun"]), default=None)
 
-        def mean(key):
-            vals = [r[key] for r in hist if r[key] is not None]
-            return sum(vals) / len(vals) if vals else None
+        def summarize(subset):
+            hist = [r for r in subset if r["vlf_chg"] is not None]
+            if not hist:
+                return None
 
-        summary = {
-            "label": f"Meðaltal {hist[0]['year']}–{hist[-1]['year']}" if hist else "Meðaltal",
-            **{k: mean(k) for k in (
-                "vlf_chg", "gjold_chg", "gjold_vlf", "tekjur_chg", "tekjur_vlf", "afkoma")},
-        }
+            def mean(key):
+                vals = [r[key] for r in hist if r[key] is not None]
+                return sum(vals) / len(vals) if vals else None
+
+            return {
+                "label": f"Meðaltal {hist[0]['year']}–{hist[-1]['year']}",
+                **{k: mean(k) for k in (
+                    "vlf_chg", "gjold_chg", "gjold_vlf", "tekjur_chg", "tekjur_vlf", "afkoma")},
+            }
+
+        summaries = [s for s in (
+            summarize([r for r in rows if not r["aaetlun"]]),
+            summarize([r for r in rows if not r["handvirkt"]
+                       and last_actual is not None and r["year"] <= last_actual]),
+        ) if s]
         first_plan = next((r["year"] for r in rows if r["aaetlun"]), None)
 
         return render_template(
@@ -3577,7 +3590,7 @@ def create_app() -> Flask:
             rows=rows,
             all_docs=all_docs,
             heimild_heiti=FJARMAL_HEIMILD_HEITI,
-            summary=summary,
+            summaries=summaries,
             first_plan=first_plan,
             chart_labels=[f"{r['year']}*" if r["aaetlun"] else str(r["year"]) for r in rows],
             chart_gjold_vlf=[round(r["gjold_vlf"] * 100, 2) for r in rows],
