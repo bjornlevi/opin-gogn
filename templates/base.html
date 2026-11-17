@@ -527,6 +527,7 @@
     <a href="{{ url_for('rikisreikningur_wages') }}" {% if page_id == 'wages' %}class="active"{% endif %}>Laun</a>
     <a href="{{ url_for('rikisreikningur_comparison') }}" {% if page_id == 'comparison' %}class="active"{% endif %}>Samanburður</a>
     <a href="{{ url_for('rikisreikningur_institutions') }}" {% if page_id == 'institutions' %}class="active"{% endif %}>Stofnanir</a>
+    <a href="{{ url_for('rikisreikningur_throun') }}" {% if page_id == 'throun' %}class="active"{% endif %}>Þróun</a>
   {% else %}
     <a href="{{ url_for('rkv_explorer') }}"  {% if page_id == 'explorer' %}class="active"{% endif %}>Skoðun</a>
     <a href="{{ url_for('rkv_types') }}"     {% if page_id == 'types' %}class="active"{% endif %}>Tegund útgjalda</a>

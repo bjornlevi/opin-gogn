@@ -18,7 +18,7 @@ TO        ?=
 .PHONY: web dev install pipeline anomalies \
         rikid-pipeline rikid-anomalies \
         reykjavik-pipeline reykjavik-anomalies \
-        rikisreikningur-pipeline municipality-pipeline
+        rikisreikningur-pipeline municipality-pipeline rikisfjarmal-pipeline
 
 # ── Web ──────────────────────────────────────────────────────────────────────
 
@@ -52,6 +52,7 @@ pipeline:
 		$(MAKE) rikisreikningur-pipeline && \
 		$(MAKE) municipality-pipeline && \
 		$(MAKE) anomalies; \
+		$(MAKE) rikisfjarmal-pipeline || echo "⚠ Ríkisfjármál pipeline failed"; \
 	else \
 		echo "==> Incremental update"; \
 		from=$$($(PYTHON) scripts/detect_max_date.py "$(RIKID_PARQUET_DIR)/opnirreikningar_with_corrections.parquet" --next-day 2>/dev/null || echo "2017-01-01"); \
@@ -68,6 +69,7 @@ pipeline:
 		$(MAKE) rikisreikningur-pipeline && \
 		$(MAKE) municipality-pipeline && \
 		$(MAKE) anomalies; \
+		$(MAKE) rikisfjarmal-pipeline || echo "⚠ Ríkisfjármál pipeline failed"; \
 	fi
 
 # ── Rikid ────────────────────────────────────────────────────────────────────
@@ -142,6 +144,15 @@ municipality-pipeline:
 	@echo "==> Downloading current and archived municipality accounts..."
 	$(PYTHON) $(SCRIPTS)/download_municipal_accounts.py \
 		--output "static/municipal_accounts.json"
+
+# ── Ríkisfjármál: heildartölur A1-hluta og VLF ─────────────────────────────
+
+# Ríkisreikningur (PDF, slóðir í reference/rikisfjarmal/rikisreikningur_heimildir.csv),
+# fjárlög/fjáraukalög/fjármálaáætlanir (XML-þjónusta Alþingis) og VLF (Hagstofa).
+# Úttakið í reference/rikisfjarmal/ er vistað í git; krefst pdftotext.
+rikisfjarmal-pipeline:
+	@command -v pdftotext >/dev/null || { echo "⚠ pdftotext vantar (poppler-utils)"; exit 1; }
+	$(PYTHON) $(SCRIPTS)/rikisfjarmal.py
 
 # ── Anomalies (rebuild for both) ──────────────────────────────────────────────
 

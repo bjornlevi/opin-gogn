@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% set page_id = "throun" %}
+{% block title %}Þróun — Ríkisreikningur{% endblock %}
+
+{% macro chg(v) %}{{ fmt_pct(v * 100) if v is not none else "–" }}{% endmacro %}
+{% macro share(v) %}{{ "%.1f%%" | format(v * 100) if v is not none else "–" }}{% endmacro %}
+{% macro neg(v) %}{% if v is not none and v < 0 %}neg{% endif %}{% endmacro %}
+
+{% block body %}
+<style>
+  tr.plan td { color: var(--muted); font-style: italic; }
+  tr.plan-start td { border-top: 2px dashed var(--border, #d6d3d1); }
+  tr.summary td { font-weight: 600; border-top: 2px solid var(--border, #d6d3d1); }
+</style>
+
+<div class="page-header">
+  <div class="source-badge badge-rikisreikningur">Ríkisreikningur</div>
+  <h1>Landsframleiðsla, gjöld og tekjur ríkissjóðs</h1>
+  <p>Ríkissjóður (A1-hluti, GFS) á verðlagi hvers árs, m.kr. Ár merkt * byggja á fjárlögum eða fjármálaáætlun því ríkisreikningur liggur ekki fyrir.</p>
+</div>
+
+{% if not data_loaded %}
+  <div style="padding:0 28px"><div class="empty">{{ error }}</div></div>
+{% else %}
+<div style="padding:0 28px 28px">
+  <div class="panel" style="margin-bottom:12px">
+    <div class="section-title">Gjöld, tekjur og afkoma sem hlutfall af VLF</div>
+    <div class="chart-wrap" style="height:320px">
+      <canvas id="throun-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:12px">
+    <div class="section-title">Ár yfir ár</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Ár</th>
+            <th class="num">VLF</th>
+            <th class="num">Δ%</th>
+            <th class="num">10 ára μ%</th>
+            <th class="num">Gjöld alls</th>
+            <th class="num">Δ%</th>
+            <th class="num">% VLF</th>
+            <th class="num">Tekjur alls</th>
+            <th class="num">Δ%</th>
+            <th class="num">% VLF</th>
+            <th class="num">Afkoma</th>
+            <th>Heimild</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr class="{% if r.aaetlun %}plan{% endif %} {% if r.year == first_plan %}plan-start{% endif %}">
+            <td>{{ r.year }}{% if r.aaetlun %}*{% endif %}</td>
+            <td class="num">{{ fmt(r.vlf) }}</td>
+            <td class="num {{ neg(r.vlf_chg) }}">{{ chg(r.vlf_chg) }}</td>
+            <td class="num {{ neg(r.vlf_chg_10y) }}">{{ chg(r.vlf_chg_10y) }}</td>
+            <td class="num">{{ fmt(r.gjold) }}</td>
+            <td class="num {{ neg(r.gjold_chg) }}">{{ chg(r.gjold_chg) }}</td>
+            <td class="num">{{ share(r.gjold_vlf) }}</td>
+            <td class="num">{{ fmt(r.tekjur) }}</td>
+            <td class="num {{ neg(r.tekjur_chg) }}">{{ chg(r.tekjur_chg) }}</td>
+            <td class="num">{{ share(r.tekjur_vlf) }}</td>
+            <td class="num {{ neg(r.afkoma) }}">{{ fmt(r.afkoma) }}</td>
+            <td style="font-size:12px; white-space:nowrap">
+              {% if r.heimild_slod %}<a href="{{ r.heimild_slod }}" target="_blank" rel="noopener">{{ r.heimild_label }}</a>{% else %}{{ r.heimild_label }}{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          <tr class="summary">
+            <td>{{ summary.label }}</td>
+            <td></td>
+            <td class="num {{ neg(summary.vlf_chg) }}">{{ chg(summary.vlf_chg) }}</td>
+            <td></td>
+            <td></td>
+            <td class="num {{ neg(summary.gjold_chg) }}">{{ chg(summary.gjold_chg) }}</td>
+            <td class="num">{{ share(summary.gjold_vlf) }}</td>
+            <td></td>
+            <td class="num {{ neg(summary.tekjur_chg) }}">{{ chg(summary.tekjur_chg) }}</td>
+            <td class="num">{{ share(summary.tekjur_vlf) }}</td>
+            <td class="num {{ neg(summary.afkoma) }}">{{ fmt(summary.afkoma) }}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:12px">
+    <details>
+      <summary class="section-title" style="cursor:pointer">Allar heimildir ({{ all_docs | length }} skjöl)</summary>
+      <div class="table-wrap" style="margin-top:8px">
+        <table>
+          <thead>
+            <tr>
+              <th>Ár</th>
+              <th>Heimild</th>
+              <th>Skjal</th>
+              <th>Staða</th>
+              <th>Dags.</th>
+              <th class="num">Tekjur</th>
+              <th class="num">Gjöld</th>
+              <th class="num">Breyting gjalda</th>
+              <th>Notað</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in all_docs %}
+            <tr {% if not d.notad %}style="color:var(--muted)"{% endif %}>
+              <td>{{ d.ar }}</td>
+              <td>{{ d.heiti }}</td>
+              <td>{% if d.slod %}<a href="{{ d.slod }}" target="_blank" rel="noopener">{{ d.skjal }}</a>{% else %}{{ d.skjal }}{% endif %}</td>
+              <td>{{ {"frumvarp": "Frumvarp", "samthykkt": "Samþykkt", "uppgjor": "Uppgjör"}.get(d.stada, d.stada) }}</td>
+              <td style="white-space:nowrap">{{ d.dags or "–" }}</td>
+              <td class="num">{{ fmt(d.tekjur) if d.tekjur is not none else "" }}</td>
+              <td class="num">{{ fmt(d.gjold) if d.gjold is not none else "" }}</td>
+              <td class="num {{ neg(d.gjold_breyting) }}">{{ fmt(d.gjold_breyting) if d.gjold_breyting is not none else "" }}</td>
+              <td>{{ "✓" if d.notad else "" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <div class="panel">
+    <div class="section-title">Skýringar</div>
+    <ul style="margin:0; padding-left:18px; color:var(--muted); font-size:14px">
+      <li>Gjöld og tekjur eru heildartölur ríkissjóðs (A1-hluta) samkvæmt GFS-staðli. Fyrir 2022 er miðað við A-hluta ríkissjóðs eins og hann var afmarkaður í ríkisreikningi hvers árs.</li>
+      <li>Val heimilda: ríkisreikningur ef hann er til. Annars nýjasta fjármálaáætlun, yfirskrifuð með nýjustu útgáfu fjárlaga (frumvarp eða samþykkt), og breytingar fjárheimilda í fjáraukalögum lagðar ofan á gjöldin.</li>
+      <li>Fjáraukalög breyta fjárheimildum (gjöldum) en ekki tekjuáætlun.</li>
+      <li>Ár fyrir 2017 koma úr eldra samanburðarskjali (fyrir gildistöku laga um opinber fjármál).</li>
+      <li>VLF: Hagstofa Íslands (THJ01102); fyrir ár sem ekki eru komin í þjóðhagsreikninga er notuð nýjasta þjóðhagsspá (THJ07000).</li>
+      <li>Δ% er breyting frá fyrra ári. 10 ára μ% er meðaltal Δ% VLF síðustu 10 ára (til og með árinu). Afkoma = tekjur − gjöld.</li>
+      <li>Meðaltalslínan nær yfir uppgjörsár, ekki fjárlög eða áætlun.</li>
+      <li><a href="?format=csv">Sækja töfluna sem CSV</a></li>
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+<script>
+{% if data_loaded %}
+(function () {
+  const plan = {{ chart_plan | tojson }};
+  const dashPlan = { borderDash: ctx => plan[ctx.p1DataIndex] ? [6, 4] : undefined };
+  new Chart(document.getElementById("throun-chart"), {
+    data: {
+      labels: {{ chart_labels | tojson }},
+      datasets: [{
+        type: "line",
+        label: "Gjöld % VLF",
+        data: {{ chart_gjold_vlf | tojson }},
+        borderColor: "rgba(180,83,9,.95)",
+        backgroundColor: "rgba(180,83,9,.95)",
+        pointRadius: 2,
+        segment: dashPlan,
+      }, {
+        type: "line",
+        label: "Tekjur % VLF",
+        data: {{ chart_tekjur_vlf | tojson }},
+        borderColor: "rgba(14,116,144,.95)",
+        backgroundColor: "rgba(14,116,144,.95)",
+        pointRadius: 2,
+        segment: dashPlan,
+      }, {
+        type: "bar",
+        label: "Afkoma % VLF",
+        data: {{ chart_afkoma_vlf | tojson }},
+        yAxisID: "y2",
+        backgroundColor: {{ chart_afkoma_vlf | tojson }}.map((v, i) =>
+          (v < 0 ? "rgba(220,38,38," : "rgba(22,163,74,") + (plan[i] ? ".25)" : ".5)")),
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        tooltip: { callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)}%` } },
+      },
+      scales: {
+        y: { title: { display: true, text: "% af VLF" }, ticks: { callback: v => v + "%" } },
+        y2: { position: "right", grid: { drawOnChartArea: false },
+              title: { display: true, text: "Afkoma % af VLF" }, ticks: { callback: v => v + "%" } },
+      },
+    },
+  });
+})();
+{% endif %}
+</script>
+{% endblock %}

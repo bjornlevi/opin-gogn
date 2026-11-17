@@ -57,6 +57,11 @@ RIKID_INSTITUTIONS_RECONCILIATION = Path(
               str(BASE_DIR / "data/rikisreikningur/processed/rikid_institutions_reconciliation.csv"))
 )
 MUNICIPAL_ACCOUNTS = BASE_DIR / "static/municipal_accounts.json"
+# Heildartölur ríkissjóðs (A1-hluta, GFS, m.kr.) úr ríkisreikningi, fjármála-
+# áætlunum, fjárlögum og fjáraukalögum, og VLF frá Hagstofu. Búið til með
+# `make rikisfjarmal-pipeline` (scripts/rikisfjarmal.py).
+FJARMAL_HEILDARTOLUR = BASE_DIR / "reference/rikisfjarmal/heildartolur.csv"
+FJARMAL_VLF = BASE_DIR / "reference/rikisfjarmal/vlf.csv"
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -80,6 +85,121 @@ def fmt_pct(value) -> str:
         return f"{float(value):+.1f}%"
     except (TypeError, ValueError):
         return str(value)
+
+
+FJARMAL_HEIMILD_HEITI = {
+    "rikisreikningur": "Ríkisreikningur",
+    "fjarmalaaaetlun": "Fjármálaáætlun",
+    "fjarlog": "Fjárlög",
+    "fjaraukalog": "Fjáraukalög",
+    "eldra": "Eldra skjal",
+}
+
+
+def _num(v: str) -> float | None:
+    return float(v) if v not in (None, "") else None
+
+
+def _latest(docs: list[dict]) -> dict | None:
+    """Nýjasta skjalið (eftir útbýtingardegi); samþykkt útgáfa ef dagsetning er jöfn."""
+    if not docs:
+        return None
+    return max(docs, key=lambda d: (d["dags"] or "", d["stada"] == "samthykkt"))
+
+
+def _doc_label(d: dict) -> str:
+    if d["heimild"] in ("rikisreikningur", "eldra"):
+        return d["skjal"]
+    return f"{d['skjal']} ({'samþykkt' if d['stada'] == 'samthykkt' else 'frumvarp'})"
+
+
+def resolve_fjarmal_year(docs: list[dict]) -> dict | None:
+    """Velja gjöld og tekjur ársins úr heimildum:
+
+    1. Ríkisreikningur ef hann er til (grunnurinn).
+    2. Annars nýjasta fjármálaáætlun sem nær yfir árið,
+       yfirskrifuð með nýjustu útgáfu fjárlaga (frumvarp eða samþykkt),
+       og fjáraukalög lögð ofan á gjöldin: nýjasta útgáfa (frumvarp eða
+       samþykkt) hvers fjáraukalagamáls, öll mál ársins lögð saman.
+    3. Eldra samanburðarskjal ef ekkert af ofantöldu er til.
+    """
+    by = lambda h: [d for d in docs if d["heimild"] == h]
+    rr = _latest(by("rikisreikningur"))
+    if rr:
+        return {"tekjur": rr["tekjur"], "gjold": rr["gjold"], "aaetlun": False,
+                "heimild": "rikisreikningur", "notad": [rr]}
+
+    plan, fl = _latest(by("fjarmalaaaetlun")), _latest(by("fjarlog"))
+    base = fl or plan
+    if base:
+        auki_mal: dict[str, list[dict]] = {}
+        for d in by("fjaraukalog"):
+            auki_mal.setdefault(d["mal"] or d["skjal"], []).append(d)
+        auki = [_latest(v) for v in auki_mal.values()]
+        auki_sum = sum(d["gjold_breyting"] or 0 for d in auki)
+        return {"tekjur": base["tekjur"], "gjold": base["gjold"] + auki_sum, "aaetlun": True,
+                "heimild": base["heimild"], "notad": [base] + auki, "fjarauki": auki_sum}
+
+    old = _latest(by("eldra"))
+    if old:
+        return {"tekjur": old["tekjur"], "gjold": old["gjold"], "aaetlun": False,
+                "heimild": "eldra", "notad": [old]}
+    return None
+
+
+def load_fjarmal_throun(heildartolur: Path = FJARMAL_HEILDARTOLUR,
+                        vlf_path: Path = FJARMAL_VLF) -> tuple[list[dict], dict[int, list[dict]]]:
+    """Reikna dálka Þróun-skjalsins: Δ%, 10 ára meðaltal, % af VLF og afkomu.
+
+    Skilar (línur, öll skjöl eftir árum). Breytingar eru hlutfallsleg breyting
+    frá fyrra ári (0.072 = +7,2%). 10 ára meðaltal ársins y er meðaltal
+    breytinga áranna y-9..y og birtist þegar a.m.k. 7 gildi eru til.
+    """
+    docs_by_year: dict[int, list[dict]] = {}
+    with heildartolur.open(encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            d = {**r, "ar": int(r["ar"]), "tekjur": _num(r["tekjur"]), "gjold": _num(r["gjold"]),
+                 "gjold_breyting": _num(r["gjold_breyting"])}
+            docs_by_year.setdefault(d["ar"], []).append(d)
+    with vlf_path.open(encoding="utf-8") as f:
+        vlf = {int(r["ar"]): {"vlf": float(r["vlf"]), "spa": r["heimild"] == "spa"}
+               for r in csv.DictReader(f)}
+
+    raw = []
+    for year in sorted(docs_by_year):
+        res = resolve_fjarmal_year(docs_by_year[year])
+        if res is None or year not in vlf:
+            continue
+        raw.append({"year": year, "vlf": vlf[year]["vlf"], "vlf_spa": vlf[year]["spa"], **res})
+
+    def change(cur, prev, key):
+        if prev is None or prev["year"] != cur["year"] - 1 or not prev[key]:
+            return None
+        return cur[key] / prev[key] - 1
+
+    rows = []
+    for i, r in enumerate(raw):
+        prev = raw[i - 1] if i > 0 else None
+        rows.append({
+            **r,
+            "vlf_chg": change(r, prev, "vlf"),
+            "gjold_chg": change(r, prev, "gjold"),
+            "tekjur_chg": change(r, prev, "tekjur"),
+            "gjold_vlf": r["gjold"] / r["vlf"],
+            "tekjur_vlf": r["tekjur"] / r["vlf"],
+            "afkoma": r["tekjur"] - r["gjold"],
+        })
+
+    for r in rows:
+        window = [
+            x["vlf_chg"] for x in rows
+            if r["year"] - 9 <= x["year"] <= r["year"] and x["vlf_chg"] is not None
+        ]
+        r["vlf_chg_10y"] = sum(window) / len(window) if len(window) >= 7 else None
+        r["heimild_label"] = " + ".join(_doc_label(d) for d in r["notad"]
+                                        if d["heimild"] != "fjaraukalog" or d["gjold_breyting"])
+        r["heimild_slod"] = r["notad"][0]["slod"] or None
+    return rows, docs_by_year
 
 
 def safe_path(p: Path) -> str:
@@ -3401,6 +3521,65 @@ def create_app() -> Flask:
             year_rows=year_rows,
             bucket_rows=bucket_rows,
             caveats=caveats,
+        )
+
+    @app.route("/rikisreikningur/throun")
+    def rikisreikningur_throun():
+        try:
+            rows, docs_by_year = load_fjarmal_throun()
+        except (OSError, KeyError, ValueError) as exc:
+            return render_template(
+                "rikisreikningur_throun.html", source="rikisreikningur",
+                data_loaded=False, error=f"Gat ekki lesið heildartölur ríkissjóðs: {exc}",
+            )
+        if request.args.get("format") == "csv":
+            out = io.StringIO()
+            w = csv.writer(out)
+            w.writerow(["ar", "vlf", "gjold", "tekjur", "afkoma", "aaetlun", "heimild"])
+            for r in rows:
+                w.writerow([r["year"], round(r["vlf"]), round(r["gjold"], 1), round(r["tekjur"], 1),
+                            round(r["afkoma"], 1), int(r["aaetlun"]), r["heimild_label"]])
+            return Response(out.getvalue(), mimetype="text/csv",
+                            headers={"Content-Disposition": "attachment; filename=rikisfjarmal_throun.csv"})
+
+        used = {id(d) for r in rows for d in r["notad"]}
+        all_docs = [
+            {**d, "notad": id(d) in used, "heiti": FJARMAL_HEIMILD_HEITI.get(d["heimild"], d["heimild"])}
+            for year in sorted(docs_by_year, reverse=True)
+            for d in sorted(docs_by_year[year], key=lambda d: (d["heimild"], d["dags"] or ""))
+            if d["heimild"] != "eldra"
+        ]
+
+        # Samantektarlína eins og „Fyrir fjármálaáætlun“ í skjalinu:
+        # meðaltal yfir uppgjörsár (ekki fyrsta árið, sem hefur engar breytingar).
+        actual = [r for r in rows if not r["aaetlun"]]
+        hist = [r for r in actual if r["vlf_chg"] is not None]
+
+        def mean(key):
+            vals = [r[key] for r in hist if r[key] is not None]
+            return sum(vals) / len(vals) if vals else None
+
+        summary = {
+            "label": f"Meðaltal {hist[0]['year']}–{hist[-1]['year']}" if hist else "Meðaltal",
+            **{k: mean(k) for k in (
+                "vlf_chg", "gjold_chg", "gjold_vlf", "tekjur_chg", "tekjur_vlf", "afkoma")},
+        }
+        first_plan = next((r["year"] for r in rows if r["aaetlun"]), None)
+
+        return render_template(
+            "rikisreikningur_throun.html",
+            source="rikisreikningur",
+            data_loaded=True,
+            rows=rows,
+            all_docs=all_docs,
+            heimild_heiti=FJARMAL_HEIMILD_HEITI,
+            summary=summary,
+            first_plan=first_plan,
+            chart_labels=[f"{r['year']}*" if r["aaetlun"] else str(r["year"]) for r in rows],
+            chart_gjold_vlf=[round(r["gjold_vlf"] * 100, 2) for r in rows],
+            chart_tekjur_vlf=[round(r["tekjur_vlf"] * 100, 2) for r in rows],
+            chart_afkoma_vlf=[round(r["afkoma"] / r["vlf"] * 100, 2) for r in rows],
+            chart_plan=[r["aaetlun"] for r in rows],
         )
 
     # =========================================================================
