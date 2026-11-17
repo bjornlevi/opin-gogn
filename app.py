@@ -3557,8 +3557,8 @@ def create_app() -> Flask:
 
         # Samantektarlínur eins og „Fyrir fjármálaáætlun“ í skjalinu: meðaltöl
         # yfir uppgjörsár (ekki fyrsta árið, sem hefur engar breytingar).
-        # 1) öll uppgjörsár, 2) uppgjörsár sem eru ekki handvirkt dregin úr eldri
-        # ríkisreikningum (frá 2017), 3) frá 2017 út fjármálaáætlunartímabilið.
+        # 1) öll uppgjörsár, 2) uppgjörsár án handvirkt útdreginna talna (frá 2018),
+        # 3) frá 2018 út fjármálaáætlunartímabilið.
         last_actual = max((r["year"] for r in rows if not r["aaetlun"]), default=None)
 
         def summarize(subset):
@@ -3576,12 +3576,16 @@ def create_app() -> Flask:
                     "vlf_chg", "gjold_chg", "gjold_vlf", "tekjur_chg", "tekjur_vlf", "afkoma")},
             }
 
+        # Ár þar sem hvorki árið né fyrra ár er handvirkt (Δ% 2017 er reiknað frá
+        # handvirku 2016, sem var óvenjulegt vegna stöðugleikaframlaga).
+        handvirkt_ar = {r["year"] for r in rows if r["handvirkt"]}
+        hreint = [r for r in rows if not ({r["year"], r["year"] - 1} & handvirkt_ar)]
         summaries = [s for s in (
             summarize([r for r in rows if not r["aaetlun"]]),
-            summarize([r for r in rows if not r["handvirkt"]
-                       and last_actual is not None and r["year"] <= last_actual]),
+            summarize([r for r in hreint
+                       if last_actual is not None and r["year"] <= last_actual]),
             # Til loka tímabils nýjustu fjármálaáætlunar (síðasta ár í gögnunum).
-            summarize([r for r in rows if not r["handvirkt"]]),
+            summarize(hreint),
         ) if s]
         first_plan = next((r["year"] for r in rows if r["aaetlun"]), None)
 
