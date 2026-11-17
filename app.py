@@ -3557,8 +3557,8 @@ def create_app() -> Flask:
 
         # Samantektarlínur eins og „Fyrir fjármálaáætlun“ í skjalinu: meðaltöl
         # yfir uppgjörsár (ekki fyrsta árið, sem hefur engar breytingar).
-        # Fyrri línan nær yfir öll ár, sú síðari aðeins ár sem eru ekki
-        # handvirkt dregin úr eldri ríkisreikningum (þ.e. frá 2017).
+        # 1) öll uppgjörsár, 2) uppgjörsár sem eru ekki handvirkt dregin úr eldri
+        # ríkisreikningum (frá 2017), 3) frá 2017 út fjármálaáætlunartímabilið.
         last_actual = max((r["year"] for r in rows if not r["aaetlun"]), default=None)
 
         def summarize(subset):
@@ -3571,7 +3571,7 @@ def create_app() -> Flask:
                 return sum(vals) / len(vals) if vals else None
 
             return {
-                "label": f"Meðaltal {hist[0]['year']}–{hist[-1]['year']}",
+                "label": f"Meðaltal {hist[0]['year']}–{hist[-1]['year']}{'*' if hist[-1]['aaetlun'] else ''}",
                 **{k: mean(k) for k in (
                     "vlf_chg", "gjold_chg", "gjold_vlf", "tekjur_chg", "tekjur_vlf", "afkoma")},
             }
@@ -3580,6 +3580,8 @@ def create_app() -> Flask:
             summarize([r for r in rows if not r["aaetlun"]]),
             summarize([r for r in rows if not r["handvirkt"]
                        and last_actual is not None and r["year"] <= last_actual]),
+            # Til loka tímabils nýjustu fjármálaáætlunar (síðasta ár í gögnunum).
+            summarize([r for r in rows if not r["handvirkt"]]),
         ) if s]
         first_plan = next((r["year"] for r in rows if r["aaetlun"]), None)
 
