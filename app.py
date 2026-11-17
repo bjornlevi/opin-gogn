@@ -3525,11 +3525,15 @@ def create_app() -> Flask:
 
     @app.route("/rikisreikningur/throun")
     def rikisreikningur_throun():
+        return redirect(url_for("opinber_fjarmal", **request.args), code=301)
+
+    @app.route("/opinber-fjarmal/")
+    def opinber_fjarmal():
         try:
             rows, docs_by_year = load_fjarmal_throun()
         except (OSError, KeyError, ValueError) as exc:
             return render_template(
-                "rikisreikningur_throun.html", source="rikisreikningur",
+                "opinber_fjarmal.html", source="opinber",
                 data_loaded=False, error=f"Gat ekki lesið heildartölur ríkissjóðs: {exc}",
             )
         if request.args.get("format") == "csv":
@@ -3567,8 +3571,8 @@ def create_app() -> Flask:
         first_plan = next((r["year"] for r in rows if r["aaetlun"]), None)
 
         return render_template(
-            "rikisreikningur_throun.html",
-            source="rikisreikningur",
+            "opinber_fjarmal.html",
+            source="opinber",
             data_loaded=True,
             rows=rows,
             all_docs=all_docs,

@@ -40,12 +40,12 @@ make anomalies            # Rebuild anomaly detection for both sources
 - Example: `make rikid-pipeline FROM=2024-01-01 TO=2024-12-31`
 
 **Ríkisfjármál (heildartölur A1-hluta)** (✓ Mostly automated):
-- Feeds `/rikisreikningur/throun` (GDP, total revenue/expenditure, balance)
+- Feeds `/opinber-fjarmal/` ("Opinber fjármál" tab; old `/rikisreikningur/throun` redirects) (GDP, total revenue/expenditure, balance)
 - Ríkisreikningur PDFs listed in `reference/rikisfjarmal/rikisreikningur_heimildir.csv` (island.is blocks scripts; add each new year's URL by hand)
 - Fjárlög, fjáraukalög, fjármálaáætlanir: Alþingi XML API (`althingi.is/altext/xml/thingmalalisti/`), both bill and enacted versions
 - GDP: Hagstofa PX API (THJ01102 actuals, THJ07000 forecast)
 - Script: `scripts/rikisfjarmal.py`; output `reference/rikisfjarmal/heildartolur.csv` + `vlf.csv` is committed (server needs no pdftotext)
-- Pre-2017 years come from `reference/rikisfjarmal/handvirkt.csv` (old comparison spreadsheet)
+- Pre-2017 years come from `reference/rikisfjarmal/handvirkt.csv`: ríkisreikningur totals hand-extracted from older (pre-GFS) state accounts
 - Resolution rule (in `resolve_fjarmal_year()` in app.py): ríkisreikningur → else latest fjármálaáætlun, overridden by latest fjárlög version, plus fjáraukalög appropriation changes (latest version per mál, summed)
 - Status: `make rikisfjarmal-pipeline`
 

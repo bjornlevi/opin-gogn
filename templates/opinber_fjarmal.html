@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% set page_id = "throun" %}
-{% block title %}Þróun — Ríkisreikningur{% endblock %}
+{% set page_id = "rikissjodur" %}
+{% block title %}Ríkissjóður — Opinber fjármál{% endblock %}
 
 {% macro chg(v) %}{{ fmt_pct(v * 100) if v is not none else "–" }}{% endmacro %}
 {% macro share(v) %}{{ "%.1f%%" | format(v * 100) if v is not none else "–" }}{% endmacro %}
@@ -14,8 +14,8 @@
 </style>
 
 <div class="page-header">
-  <div class="source-badge badge-rikisreikningur">Ríkisreikningur</div>
-  <h1>Landsframleiðsla, gjöld og tekjur ríkissjóðs</h1>
+  <div class="source-badge badge-opinber">Opinber fjármál</div>
+  <h1>Ríkissjóður (A1-hluti): gjöld, tekjur og VLF</h1>
   <p>Ríkissjóður (A1-hluti, GFS) á verðlagi hvers árs, m.kr. Ár merkt * byggja á fjárlögum eða fjármálaáætlun því ríkisreikningur liggur ekki fyrir.</p>
 </div>
 
@@ -132,7 +132,7 @@
       <li>Gjöld og tekjur eru heildartölur ríkissjóðs (A1-hluta) samkvæmt GFS-staðli. Fyrir 2022 er miðað við A-hluta ríkissjóðs eins og hann var afmarkaður í ríkisreikningi hvers árs.</li>
       <li>Val heimilda: ríkisreikningur ef hann er til. Annars nýjasta fjármálaáætlun, yfirskrifuð með nýjustu útgáfu fjárlaga (frumvarp eða samþykkt), og breytingar fjárheimilda í fjáraukalögum lagðar ofan á gjöldin.</li>
       <li>Fjáraukalög breyta fjárheimildum (gjöldum) en ekki tekjuáætlun.</li>
-      <li>Ár fyrir 2017 koma úr eldra samanburðarskjali (fyrir gildistöku laga um opinber fjármál).</li>
+      <li>Ríkisreikningstölur fyrir 2017 eru dregnar handvirkt út úr eldri ríkisreikningum (fyrir gildistöku laga um opinber fjármál) og eru ekki að fullu sambærilegar við GFS-framsetningu síðari ára.</li>
       <li>VLF: Hagstofa Íslands (THJ01102); fyrir ár sem ekki eru komin í þjóðhagsreikninga er notuð nýjasta þjóðhagsspá (THJ07000).</li>
       <li>Δ% er breyting frá fyrra ári. 10 ára μ% er meðaltal Δ% VLF síðustu 10 ára (til og með árinu). Afkoma = tekjur − gjöld.</li>
       <li>Meðaltalslínan nær yfir uppgjörsár, ekki fjárlög eða áætlun.</li>
